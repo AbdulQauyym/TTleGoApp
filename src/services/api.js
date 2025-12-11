@@ -1,42 +1,13 @@
-// API Configuration
-// ============================================
-// API endpoints for fetching eSIM plans
-// Local API: { bundles: [{ countries: [{name, iso}], price, dataAmount, duration }, ...] }
-// Regional API: { bundles: [{ countries: [{name, iso, region}], price, dataAmount, duration }, ...] }
-// ============================================
-const USE_API = true; // Set to false to use default data
-const LOCAL_API_URL = 'https://www.ttelgo.com/api/plans/bundles/local';
-const REGIONAL_API_URL = 'https://www.ttelgo.com/api/plans/bundles/regional';
-const COUNTRY_PLANS_API_URL = 'https://www.ttelgo.com/api/plans/bundles/country';
+const BASE_URL = 'https://www.ttelgo.com/api';
+const TTELGO_API = 'https://ttelgo.com/api';
 
 /**
- * Fetch countries list from API
- * 
- * API Response Format from ttelgo.com:
- * {
- *   bundles: [
- *     {
- *       countries: [{ name: 'Country Name', iso: 'US', region: '...' }],
- *       price: 6.9,
- *       dataAmount: 1000, // in MB
- *       duration: 7 // in days
- *     },
- *     ...
- *   ]
- * }
- * 
- * Transforms to: [{ name: '...', price: 'From $X.XX', flag: 'us' }, ...]
- * 
- * @returns {Promise<Array>} Array of country objects with name, price, and flag
+ * Fetch countries from the local bundles API
+ * Returns an array of countries in the format: [{ name: string, price: string, flag: string }, ...]
  */
 export const fetchCountries = async () => {
-  // If API is disabled, throw error to trigger fallback
-  if (!USE_API) {
-    throw new Error('API is disabled - using default data');
-  }
-
   try {
-    const response = await fetch(LOCAL_API_URL, {
+    const response = await fetch(`${BASE_URL}/plans/bundles/local`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -49,44 +20,39 @@ export const fetchCountries = async () => {
 
     const data = await response.json();
     
-    // Transform API response to app format
+    // Transform API response to the expected format
     if (data && Array.isArray(data.bundles)) {
-      // Create a map to store unique countries with lowest price
-      const countryMap = new Map();
+      const countriesMap = new Map();
       
       data.bundles.forEach(bundle => {
         if (bundle.countries && Array.isArray(bundle.countries) && bundle.countries.length > 0) {
           const country = bundle.countries[0]; // Take first country from bundle
           const countryName = country.name;
           const isoCode = (country.iso || '').toLowerCase();
-          const price = bundle.price || 0;
           
-          // If country doesn't exist or this price is lower, add/update it
-          if (!countryMap.has(countryName) || countryMap.get(countryName).price > price) {
-            countryMap.set(countryName, {
+          // Extract price from bundle if available
+          const price = bundle.price 
+            ? `From $${bundle.price}` 
+            : bundle.newPrice 
+            ? `From $${bundle.newPrice}` 
+            : 'Price on request';
+          
+          // Add country if not already in the map (avoid duplicates)
+          if (!countriesMap.has(countryName)) {
+            countriesMap.set(countryName, {
               name: countryName,
               price: price,
-              flag: isoCode,
-              dataAmount: bundle.dataAmount,
-              duration: bundle.duration
+              flag: isoCode || 'us'
             });
           }
         }
       });
       
-      // Convert map to array and format prices
-      const countries = Array.from(countryMap.values()).map(country => ({
-        name: country.name,
-        price: `From $${country.price.toFixed(2)}`,
-        flag: country.flag,
-        dataAmount: country.dataAmount,
-        duration: country.duration
-      }));
+      // Convert map to array and sort
+      const countriesList = Array.from(countriesMap.values());
+      countriesList.sort((a, b) => a.name.localeCompare(b.name));
       
-      // Sort by country name
-      countries.sort((a, b) => a.name.localeCompare(b.name));
-      
-      return countries;
+      return countriesList;
     }
     
     return [];
@@ -97,193 +63,67 @@ export const fetchCountries = async () => {
 };
 
 /**
- * Fetch regional packages from API
- * 
- * API Response Format from ttelgo.com:
- * {
- *   bundles: [
- *     {
- *       countries: [{ name: 'Country Name', iso: 'US', region: 'North America' }],
- *       price: 6.9,
- *       dataAmount: 1000, // in MB
- *       duration: 7 // in days
- *     },
- *     ...
- *   ]
- * }
- * 
- * Transforms to: [{ id, planName, icon, price, data, validity, countries: [{name, flag}] }, ...]
- * Groups countries by region and creates regional packages
- * 
- * @returns {Promise<Array>} Array of regional package objects
+ * Fetch regional packages from the regional bundles API
+ * Returns an array of regional packages
  */
 export const fetchRegionalPackages = async () => {
-  // If API is disabled, throw error to trigger fallback
-  if (!USE_API) {
-    throw new Error('API is disabled - using default data');
-  }
-
   try {
-    console.log('🌐 Fetching regional packages from:', REGIONAL_API_URL);
-    const response = await fetch(REGIONAL_API_URL, {
+    const response = await fetch(`${BASE_URL}/plans/bundles/regional`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
-    console.log('📡 Regional API response status:', response.status, response.statusText);
-
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log('📦 Regional API raw data received, bundles count:', data?.bundles?.length || 0);
     
-    // Transform API response to app format
+    // Transform API response to the expected format
     if (data && Array.isArray(data.bundles)) {
-      console.log('🔄 Processing', data.bundles.length, 'bundles...');
-      // Group bundles by region
-      const regionMap = new Map();
-      
-      data.bundles.forEach((bundle, index) => {
-        if (bundle.countries && Array.isArray(bundle.countries) && bundle.countries.length > 0) {
-          const country = bundle.countries[0];
-          const region = country.region || 'Other';
-          const isoCode = (country.iso || '').toLowerCase();
-          const price = bundle.price || 0;
-          const dataAmount = bundle.dataAmount || 1000;
-          const duration = bundle.duration || 7;
-          
-          if (!regionMap.has(region)) {
-            regionMap.set(region, {
-              region: region,
-              countries: [],
-              prices: [],
-              dataAmount: dataAmount,
-              duration: duration
-            });
-          }
-          
-          const regionData = regionMap.get(region);
-          // Add country if not already in the list
-          const countryExists = regionData.countries.some(c => c.name === country.name);
-          if (!countryExists) {
-            regionData.countries.push({
-              name: country.name,
-              flag: isoCode
-            });
-            regionData.prices.push(price);
-          }
-        }
-      });
-      
-      // Convert to regional packages format
-      const regionalPackages = Array.from(regionMap.entries()).map(([region, data], index) => {
-        // Get region icon based on region name
-        const getRegionIcon = (regionName) => {
-          const iconMap = {
-            'Africa': '🌍',
-            'Europe': '🌍',
-            'Asia': '🌏',
-            'Middle East': '🕌',
-            'North America': '🏝️',
-            'South America': '🌎',
-            'Oceania': '🌏',
-            'Other': '🌎'
-          };
-          return iconMap[regionName] || '🌍';
-        };
+      return data.bundles.map((bundle, index) => {
+        // Extract countries from bundle
+        const countries = bundle.countries && Array.isArray(bundle.countries)
+          ? bundle.countries.map(country => ({
+              name: country.name || '',
+              flag: (country.iso || '').toLowerCase() || 'us'
+            }))
+          : [];
         
-        // Use actual region name (matching website format)
-        // The website uses: Europe, Middle East, North America, Asia, South America, Oceania, Africa
-        const getRegionName = (regionName) => {
-          // Keep region names as they are, matching the website
-          return regionName;
-        };
-        
-        // Calculate minimum price (website shows "From $X.XX/GB")
-        const minPrice = data.prices.length > 0 
-          ? Math.min(...data.prices).toFixed(2)
-          : '0.00';
-        
-        // Format price as "From $X.XX/GB" to match website
-        const formattedPrice = `From $${minPrice}/GB`;
-        
-        // Format data amount
-        const dataGB = data.dataAmount >= 1000 ? `${data.dataAmount / 1000} GB` : `${data.dataAmount} MB`;
-        
+        // Map bundle to regional package format
         return {
-          id: index + 1,
-          planName: getRegionName(region),
-          icon: getRegionIcon(region),
-          price: formattedPrice, // Now shows "From $X.XX/GB"
-          data: dataGB,
-          validity: `${data.duration} days`,
-          countries: data.countries.sort((a, b) => a.name.localeCompare(b.name)),
-          countryCount: data.countries.length // Add country count for display
+          id: bundle.id || index + 1,
+          planName: bundle.name || bundle.planName || `Regional Plan ${index + 1}`,
+          icon: bundle.icon || '🌍',
+          price: bundle.price || bundle.newPrice || '0',
+          data: bundle.data || bundle.dataAmount || '1 GB',
+          validity: bundle.validity || bundle.duration || '7 days',
+          countries: countries,
+          countryCount: countries.length
         };
       });
-      
-      // Sort by region name
-      regionalPackages.sort((a, b) => a.planName.localeCompare(b.planName));
-      
-      console.log('✅ Transformed to', regionalPackages.length, 'regional packages');
-      console.log('📋 Regional packages:', regionalPackages.map(p => ({ name: p.planName, countries: p.countries.length })));
-      
-      return regionalPackages;
     }
     
-    console.warn('⚠️ No bundles array found in API response');
     return [];
   } catch (error) {
-    console.error('❌ Error fetching regional packages:', error);
-    console.error('Error message:', error.message);
+    console.error('Error fetching regional packages:', error);
     throw error;
   }
 };
 
 /**
- * Fetch data plans for a specific country
- * 
- * API Response Format from ttelgo.com:
- * {
- *   bundles: [
- *     {
- *       name: 'esim_1GB_7D_AX_V2',
- *       description: 'eSIM, 1GB, 7 Days, Aaland Islands, V2',
- *       countries: [{ name: '...', iso: '...' }],
- *       dataAmount: 1000, // in MB, -1 for unlimited
- *       duration: 7, // in days
- *       price: 1.3,
- *       unlimited: false,
- *       imageUrl: '...'
- *     },
- *     ...
- *   ]
- * }
- * 
- * Transforms to: [{ id, data: 'X GB' or 'Unlimited', duration: 'X Days', price: 'X.XX' }, ...]
- * 
- * @param {string} countryIso - ISO code of the country (e.g., 'AX', 'US')
- * @returns {Promise<Array>} Array of plan objects
+ * Fetch country-specific plans
+ * @param {string} countryFlag - ISO country code (e.g., 'us', 'gb')
+ * @returns {Promise<Array>} Array of data plans
  */
-export const fetchCountryPlans = async (countryIso) => {
-  // If API is disabled, throw error to trigger fallback
-  if (!USE_API) {
-    throw new Error('API is disabled - using default data');
-  }
-
-  if (!countryIso) {
-    throw new Error('Country ISO code is required');
-  }
-
+export const fetchCountryPlans = async (countryFlag) => {
   try {
-    const url = `${COUNTRY_PLANS_API_URL}?countryIso=${countryIso.toUpperCase()}`;
-    console.log('🌐 Fetching country plans from:', url);
+    // Convert country flag to uppercase for API (e.g., 'gb' -> 'GB')
+    const countryIso = countryFlag.toUpperCase();
     
-    const response = await fetch(url, {
+    const response = await fetch(`https://ttelgo.com/api/plans/bundles/country?countryIso=${countryIso}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -295,49 +135,197 @@ export const fetchCountryPlans = async (countryIso) => {
     }
 
     const data = await response.json();
-    console.log('📦 Country plans API response received, bundles count:', data?.bundles?.length || 0);
     
-    // Transform API response to app format
+    // Transform API response to the expected format
     if (data && Array.isArray(data.bundles)) {
-      const plans = data.bundles.map((bundle, index) => {
-        // Format data amount
+      return data.bundles.map((bundle, index) => {
+        // Convert dataAmount from MB to GB format
         let dataText;
         if (bundle.unlimited || bundle.dataAmount === -1) {
           dataText = 'Unlimited';
-        } else if (bundle.dataAmount >= 1000) {
-          const gb = bundle.dataAmount / 1000;
-          dataText = `${gb} GB`;
+        } else if (bundle.dataAmount) {
+          // Convert MB to GB (divide by 1000)
+          const dataInGB = bundle.dataAmount / 1000;
+          // Format: if whole number, show without decimals, otherwise show 1 decimal
+          dataText = dataInGB % 1 === 0 
+            ? `${dataInGB} GB` 
+            : `${dataInGB.toFixed(1)} GB`;
         } else {
-          dataText = `${bundle.dataAmount} MB`;
+          dataText = '1 GB'; // Default fallback
         }
         
-        // Format duration
-        const durationText = bundle.duration === 1 ? '1 Day' : `${bundle.duration} Days`;
+        // Format duration as "X Days"
+        const durationText = bundle.duration 
+          ? `${bundle.duration} ${bundle.duration === 1 ? 'Day' : 'Days'}`
+          : '30 Days'; // Default fallback
         
-        // Format price
-        const price = bundle.price ? bundle.price.toFixed(2) : '0.00';
+        // Format price as string (round to 2 decimals)
+        const priceText = bundle.price 
+          ? bundle.price.toFixed(2)
+          : '0';
         
         return {
-          id: index + 1,
+          id: bundle.id || index + 1,
           data: dataText,
           duration: durationText,
-          oldPrice: null, // API doesn't provide old price, can be enhanced later
-          newPrice: price,
-          bundleData: bundle // Keep original bundle data for reference
+          oldPrice: null, // API doesn't provide oldPrice
+          newPrice: priceText,
+          bundleName: bundle.name // Include bundle name for fetching details
         };
       });
-      
-      // Sort plans by price (ascending)
-      plans.sort((a, b) => parseFloat(a.newPrice) - parseFloat(b.newPrice));
-      
-      console.log('✅ Transformed to', plans.length, 'plans');
-      return plans;
     }
     
     return [];
   } catch (error) {
-    console.error('❌ Error fetching country plans:', error);
+    console.error('Error fetching country plans:', error);
     throw error;
   }
 };
 
+/**
+ * Fetch all bundles from the main bundles API
+ * @returns {Promise<Array>} Array of bundle objects with names
+ */
+export const fetchAllBundles = async () => {
+  try {
+    const response = await fetch(`${TTELGO_API}/plans/bundles`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    // Return array of bundles with their names
+    if (data && Array.isArray(data.bundles)) {
+      return data.bundles.map(bundle => ({
+        name: bundle.name,
+        description: bundle.description,
+        countries: bundle.countries,
+        dataAmount: bundle.dataAmount,
+        duration: bundle.duration,
+        price: bundle.price,
+        unlimited: bundle.unlimited,
+        autostart: bundle.autostart,
+        roamingEnabled: bundle.roamingEnabled,
+        imageUrl: bundle.imageUrl,
+        group: bundle.group,
+        billingType: bundle.billingType,
+        potentialSpeeds: bundle.potentialSpeeds
+      }));
+    }
+    
+    return [];
+  } catch (error) {
+    console.error('Error fetching all bundles:', error);
+    throw error;
+  }
+};
+
+/**
+ * Fetch plan details by bundle name
+ * @param {string} bundleName - Bundle name (e.g., 'esim_1GB_7D_GB_V2')
+ * @returns {Promise<Object>} Plan details object
+ */
+export const fetchPlanDetails = async (bundleName) => {
+  try {
+    if (!bundleName) {
+      throw new Error('Bundle name is required');
+    }
+
+    const response = await fetch(`${TTELGO_API}/plans/bundles/${bundleName}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const bundle = await response.json();
+    
+    // Transform API response to the expected format
+    if (bundle) {
+      // Convert dataAmount from MB to GB format
+      let dataText;
+      if (bundle.unlimited || bundle.dataAmount === -1) {
+        dataText = 'Unlimited';
+      } else if (bundle.dataAmount) {
+        // Convert MB to GB (divide by 1000)
+        const dataInGB = bundle.dataAmount / 1000;
+        // Format: if whole number, show without decimals, otherwise show 1 decimal
+        dataText = dataInGB % 1 === 0 
+          ? `${dataInGB} GB` 
+          : `${dataInGB.toFixed(1)} GB`;
+      } else {
+        dataText = '1 GB'; // Default fallback
+      }
+      
+      // Format duration as "X Days"
+      const durationText = bundle.duration 
+        ? `${bundle.duration} ${bundle.duration === 1 ? 'Day' : 'Days'}`
+        : '30 Days'; // Default fallback
+      
+      // Determine speed based on potentialSpeeds or default
+      const speed = bundle.potentialSpeeds 
+        ? bundle.potentialSpeeds 
+        : '5G / LTE'; // Default
+      
+      // Determine service type
+      const service = bundle.unlimited 
+        ? 'Unlimited Data' 
+        : 'Data Only';
+      
+      // Network - could be extracted from description or use default
+      const network = bundle.description 
+        ? bundle.description.split(', ').pop() || 'Multiple Networks'
+        : 'Multiple Networks';
+      
+      // Activation message
+      const activation = bundle.autostart 
+        ? 'Plan starts automatically when connected to network, or after 60 days'
+        : 'Manual activation required';
+      
+      // Add-on availability
+      const addOnAvailable = bundle.group && bundle.group.length > 0 
+        ? 'Yes' 
+        : 'No';
+      
+      // Coverage message
+      const coverage = 'Coverage may not include overseas territories under the jurisdiction of the specified country (or countries) please contact customer support to confirm before purchasing';
+      
+      // Provider - could be extracted from group or use default
+      const provider = bundle.group && bundle.group.length > 0 
+        ? bundle.group[0] 
+        : 'Standard Provider';
+      
+      return {
+        plan: dataText,
+        validity: durationText,
+        speed: speed,
+        service: service,
+        network: network,
+        activation: activation,
+        addOnAvailable: addOnAvailable,
+        coverage: coverage,
+        provider: provider,
+        price: bundle.price ? bundle.price.toFixed(2) : '0',
+        description: bundle.description || '',
+        billingType: bundle.billingType || 'FixedCost',
+        roamingEnabled: bundle.roamingEnabled || false
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error fetching plan details:', error);
+    throw error;
+  }
+};

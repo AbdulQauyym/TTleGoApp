@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image, ActivityIndicator } from "react-native";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image, ActivityIndicator, Animated, Dimensions } from "react-native";
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import HeaderScreen from './Header';
 import { fetchCountryPlans } from '../services/api';
+
+const { height: screenHeight } = Dimensions.get('window');
 
 // Default plans fallback
 const defaultPlans = [
@@ -20,13 +22,9 @@ export default function DataPlanScreen({ route, navigation }) {
   const [plans, setPlans] = useState(defaultPlans);
   const [loading, setLoading] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState(null);
+  const [slideAnim] = useState(new Animated.Value(0)); // For popup animation
 
-  // Fetch plans from API when component mounts
-  useEffect(() => {
-    loadPlans();
-  }, [countryFlag]);
-
-  const loadPlans = async () => {
+  const loadPlans = useCallback(async () => {
     try {
       setLoading(true);
       console.log('📡 Fetching plans for country:', countryFlag);
@@ -47,21 +45,48 @@ export default function DataPlanScreen({ route, navigation }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [countryFlag]);
+
+  // Fetch plans from API when component mounts
+  useEffect(() => {
+    loadPlans();
+  }, [loadPlans]);
   
   // Toggle plan selection (radio button behavior - only one selected at a time)
   const togglePlanSelection = (planId) => {
     if (selectedPlan === planId) {
       setSelectedPlan(null);
+      // Slide down popup
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
     } else {
       setSelectedPlan(planId);
+      // Slide up popup
+      Animated.timing(slideAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
     }
   };
   
   // Check if a plan is selected
   const hasSelectedPlan = selectedPlan !== null;
+  
+  // Calculate popup translateY for animation - use useMemo to avoid recalculating
+  const popupTranslateY = useMemo(() => {
+    return slideAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [200, 0], // Slide up from 200px below
+    });
+  }, [slideAnim]);
+  
   return (
-    <ScrollView style={styles.container}>
+    <View style={styles.container}>
+    <ScrollView style={styles.scrollView}>
       
       {/* Header */}
       <View style={styles.header}>
@@ -160,7 +185,9 @@ export default function DataPlanScreen({ route, navigation }) {
                   style={styles.planDetailsButton}
                   onPress={() => navigation.navigate('DataPlan', {
                     countryName: countryName,
-                    countryFlag: countryFlag
+                    countryFlag: countryFlag,
+                    bundleName: plan.bundleName,
+                    planData: plan
                   })}
                 >
                   <Text style={styles.planDetailsText}>Plan Details</Text>
@@ -170,37 +197,82 @@ export default function DataPlanScreen({ route, navigation }) {
           })
         )}
 
-        {/* Checkout Button */}
-        <TouchableOpacity 
-          style={[
-            styles.checkoutButton,
-            !hasSelectedPlan ? styles.checkoutButtonDisabled : null
-          ]}
-          onPress={() => {
-            if (hasSelectedPlan) {
-              // Get selected plan details
-              const selectedPlanData = plans.find(plan => plan.id === selectedPlan);
-              
-              // Navigate to YourOrder screen with order details
-              navigation.navigate('YourOrderScreen', {
-                country: countryName,
-                flag: countryFlag,
-                data: selectedPlanData.data,
-                days: selectedPlanData.duration,
-                price: selectedPlanData.newPrice,
-                oldPrice: selectedPlanData.oldPrice,
-              });
-            }
-          }}
-          disabled={!hasSelectedPlan}
-        >
-          <Text style={[
-            styles.checkoutButtonText,
-            !hasSelectedPlan ? styles.checkoutButtonTextDisabled : null
-          ]}>Checkout</Text>
-        </TouchableOpacity>
       </View>
     </ScrollView>
+    
+    {/* Checkout Button Popup */}
+    {hasSelectedPlan && (
+      <Animated.View 
+        style={[
+          styles.checkoutPopup,
+          {
+            transform: [{ translateY: popupTranslateY }],
+          }
+        ]}
+      >
+        <View style={styles.popupContent}>
+          <View style={styles.popupHeader}>
+            <Text style={styles.popupTitle}>Selected Plan</Text>
+            <TouchableOpacity 
+              onPress={() => {
+                setSelectedPlan(null);
+                Animated.timing(slideAnim, {
+                  toValue: 0,
+                  duration: 300,
+                  useNativeDriver: true,
+                }).start();
+              }}
+            >
+              <Ionicons name="close" size={24} color="#666" />
+            </TouchableOpacity>
+          </View>
+          
+          {(() => {
+            const selectedPlanData = plans.find(plan => plan.id === selectedPlan);
+            return selectedPlanData ? (
+              <View style={styles.popupPlanInfo}>
+                <Text style={styles.popupPlanText}>
+                  {selectedPlanData.data} • {selectedPlanData.duration}
+                </Text>
+                <View style={styles.popupPriceRow}>
+                  {selectedPlanData.oldPrice ? (
+                    <>
+                      <Text style={styles.popupOldPrice}>${selectedPlanData.oldPrice}</Text>
+                      <Text style={styles.popupNewPrice}>${selectedPlanData.newPrice}</Text>
+                    </>
+                  ) : (
+                    <Text style={styles.popupNewPrice}>${selectedPlanData.newPrice}</Text>
+                  )}
+                </View>
+              </View>
+            ) : null;
+          })()}
+          
+          <TouchableOpacity 
+            style={styles.checkoutButton}
+            onPress={() => {
+              if (hasSelectedPlan) {
+                // Get selected plan details
+                const selectedPlanData = plans.find(plan => plan.id === selectedPlan);
+                
+                // Navigate to YourOrder screen with order details
+                navigation.navigate('YourOrderScreen', {
+                  country: countryName,
+                  flag: countryFlag,
+                  data: selectedPlanData.data,
+                  days: selectedPlanData.duration,
+                  price: selectedPlanData.newPrice,
+                  oldPrice: selectedPlanData.oldPrice,
+                });
+              }
+            }}
+          >
+            <Text style={styles.checkoutButtonText}>Checkout</Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+    )}
+    </View>
   );
 }
 
@@ -209,6 +281,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#fff",
     paddingHorizontal: 0,
+  },
+  scrollView: {
+    flex: 1,
   },
   header: {
     position: 'relative',
@@ -366,25 +441,71 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#444",
   },
+  checkoutPopup: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 10,
+    zIndex: 1000,
+  },
+  popupContent: {
+    padding: 20,
+    paddingBottom: 30,
+  },
+  popupHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  popupTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  popupPlanInfo: {
+    marginBottom: 16,
+  },
+  popupPlanText: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  popupPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  popupOldPrice: {
+    fontSize: 16,
+    color: '#999',
+    textDecorationLine: 'line-through',
+    marginRight: 8,
+  },
+  popupNewPrice: {
+    fontSize: 20,
+    color: '#CC0000',
+    fontWeight: 'bold',
+  },
   checkoutButton: {
     backgroundColor: "#CC0000",
     borderRadius: 10,
-    paddingVertical: 12,
+    paddingVertical: 14,
     alignItems: "center",
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  checkoutButtonDisabled: {
-    backgroundColor: "#E0E0E0",
-    opacity: 0.6,
+    marginTop: 8,
   },
   checkoutButtonText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "bold",
-  },
-  checkoutButtonTextDisabled: {
-    color: "#999",
   },
   loadingContainer: {
     flex: 1,

@@ -1,0 +1,59 @@
+workflows:
+  ios-workflow:
+    name: iOS Workflow
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    environment:
+      groups:
+        # Add your App Store Connect API key credentials here
+        # You can create one at: https://appstoreconnect.apple.com/access/api
+        # Then add it to Codemagic under Settings > Codemagic API > App Store Connect API keys
+        - app_store_credentials # Optional: for App Store distribution
+      vars:
+        XCODE_WORKSPACE: "ios/MyApp.xcworkspace"
+        XCODE_SCHEME: "MyApp"
+        APP_ID: "org.reactjs.native.example.MyApp" # Default React Native bundle ID - update in Xcode first
+        BUNDLE_ID: "org.reactjs.native.example.MyApp" # Update this to match your Xcode project settings
+      node: 20
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Install dependencies
+        script: |
+          npm install
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios && pod install && cd ..
+      - name: Set up code signing settings on Xcode project
+        script: |
+          xcode-project use-profiles
+      - name: Build ipa for distribution
+        script: |
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME" \
+            --export-options-plist ios/ExportOptions.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+      - $HOME/Library/Developer/Xcode/Archives/**/*.xcarchive
+    publishing:
+      email:
+        recipients:
+          - your-email@example.com # Update with your email
+        notify:
+          success: true
+          failure: false
+      # Uncomment below to automatically publish to App Store Connect
+      # app_store_connect:
+      #   auth:
+      #     # Use App Store Connect API key
+      #     issuer_id: $APP_STORE_ISSUER_ID
+      #     key_id: $APP_STORE_KEY_ID
+      #     key: $APP_STORE_PRIVATE_KEY
+      #   submit_to_testflight: true
+      #   beta_groups:
+      #     - group name 1
+      #     - group name 2
+

@@ -1,7 +1,8 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import HeaderScreen from './Header';
+import { fetchPlanDetails, fetchAllBundles } from '../services/api';
 
 const styles = StyleSheet.create({
   container: { 
@@ -143,6 +144,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+  },
 });
 
 // Detail Row Component
@@ -159,19 +171,120 @@ export default function DataPlan({navigation, route}) {
   // Get country data from route params, default to Germany if not provided
   const countryName = (route && route.params && route.params.countryName) ? route.params.countryName : 'Germany';
   const countryFlag = (route && route.params && route.params.countryFlag) ? route.params.countryFlag : 'de';
+  const bundleName = (route && route.params && route.params.bundleName) ? route.params.bundleName : null;
+  const planData = (route && route.params && route.params.planData) ? route.params.planData : null;
   
-  // Plan details data
-  const planDetails = {
-    plan: '20 GB',
-    validity: '30 Days',
+  // State management
+  const [planDetails, setPlanDetails] = useState({
+    plan: planData?.data || '20 GB',
+    validity: planData?.duration || '30 Days',
     speed: '5G / LTE',
     service: 'Data Only',
-    network: 'AT&T Verizon',
+    network: 'Multiple Networks',
     activation: 'Plan starts automatically when connected to network, or after 60 days',
     addOnAvailable: 'Yes',
     coverage: 'Coverage may not include overseas territories under the jurisdiction of the specified country (or countries) please contact customer support to confirm before purchasing',
-    provider: 'Amber'
-  };
+    provider: 'Standard Provider'
+  });
+  const [loading, setLoading] = useState(false);
+
+  // Fetch plan details from API
+  const loadPlanDetails = useCallback(async () => {
+    let actualBundleName = bundleName;
+
+    // If no bundle name provided, try to find it from all bundles
+    if (!actualBundleName && planData) {
+      try {
+        setLoading(true);
+        console.log('📡 Fetching all bundles to find matching bundle name...');
+        
+        const allBundles = await fetchAllBundles();
+        
+        // Try to find matching bundle based on plan data
+        // Match by data amount and duration
+        const matchingBundle = allBundles.find(bundle => {
+          // Convert plan data to match bundle format
+          const planDataGB = planData.data ? parseFloat(planData.data.replace(' GB', '').replace('Unlimited', '-1')) : null;
+          const planDuration = planData.duration ? parseInt(planData.duration.replace(' Days', '').replace(' Day', '')) : null;
+          
+          // Check if bundle matches
+          let dataMatch = false;
+          if (bundle.unlimited && planData.data === 'Unlimited') {
+            dataMatch = true;
+          } else if (bundle.dataAmount && planDataGB) {
+            const bundleGB = bundle.dataAmount / 1000;
+            dataMatch = Math.abs(bundleGB - planDataGB) < 0.1; // Allow small difference
+          }
+          
+          const durationMatch = bundle.duration === planDuration;
+          
+          return dataMatch && durationMatch;
+        });
+        
+        if (matchingBundle && matchingBundle.name) {
+          actualBundleName = matchingBundle.name;
+          console.log('✅ Found matching bundle name:', actualBundleName);
+        } else {
+          console.log('⚠️ Could not find matching bundle, using plan data');
+        }
+      } catch (error) {
+        console.error('❌ Error fetching all bundles:', error);
+      }
+    }
+
+    // If we still don't have a bundle name, use plan data from route params or defaults
+    if (!actualBundleName) {
+      if (planData) {
+        setPlanDetails(prev => ({
+          ...prev,
+          plan: planData.data || prev.plan,
+          validity: planData.duration || prev.validity
+        }));
+      }
+      setLoading(false);
+      return;
+    }
+
+    // Fetch plan details using the bundle name
+    try {
+      setLoading(true);
+      console.log('📡 Fetching plan details for bundle:', actualBundleName);
+      
+      const details = await fetchPlanDetails(actualBundleName);
+      
+      if (details) {
+        setPlanDetails(details);
+        console.log('✅ Loaded plan details from API');
+      } else {
+        console.log('⚠️ API returned no plan details, using defaults');
+        // Keep existing defaults or plan data
+        if (planData) {
+          setPlanDetails(prev => ({
+            ...prev,
+            plan: planData.data || prev.plan,
+            validity: planData.duration || prev.validity
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error loading plan details:', error);
+      // On error, use plan data from route params if available
+      if (planData) {
+        setPlanDetails(prev => ({
+          ...prev,
+          plan: planData.data || prev.plan,
+          validity: planData.duration || prev.validity
+        }));
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [bundleName, planData]);
+
+  // Fetch plan details when component mounts
+  useEffect(() => {
+    loadPlanDetails();
+  }, [loadPlanDetails]);
 
   return (
     <View style={styles.container}>
@@ -204,8 +317,16 @@ export default function DataPlan({navigation, route}) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Plan Details Card */}
-        <View style={styles.detailsCard}>
+        {/* Loading State */}
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#CC0000" />
+            <Text style={styles.loadingText}>Loading plan details...</Text>
+          </View>
+        ) : (
+          <>
+            {/* Plan Details Card */}
+            <View style={styles.detailsCard}>
           <DetailRow label="Plan" value={planDetails.plan} />
           <DetailRow label="Validity" value={planDetails.validity} />
           <DetailRow label="Speed" value={planDetails.speed} />
@@ -232,10 +353,28 @@ export default function DataPlan({navigation, route}) {
             <Text style={styles.detailLabel}>Provider</Text>
             <Text style={styles.detailValue}>{planDetails.provider}</Text>
           </View>
-        </View>
+            </View>
+          </>
+        )}
 
         {/* Checkout Button */}
-        <TouchableOpacity style={styles.checkoutButton}>
+        <TouchableOpacity 
+          style={styles.checkoutButton}
+          onPress={() => {
+            try {
+              navigation.navigate('YourOrderScreen', {
+                country: countryName,
+                flag: countryFlag,
+                data: planDetails.plan,
+                days: planDetails.validity,
+                price: planDetails.price || planData?.newPrice || '0',
+                oldPrice: planData?.oldPrice || null,
+              });
+            } catch (error) {
+              console.error('Navigation error:', error);
+            }
+          }}
+        >
           <Text style={styles.checkoutButtonText}>Checkout</Text>
         </TouchableOpacity>
       </ScrollView>

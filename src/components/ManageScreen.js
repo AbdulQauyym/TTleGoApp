@@ -40,8 +40,12 @@ export default function ManageScreen({navigation}) {
             <View style={styles.headerLeft}>
               <TouchableOpacity 
                 onPress={() => {
-                  if (navigation && navigation.goBack) {
-                    navigation.goBack();
+                  try {
+                    if (navigation && navigation.goBack) {
+                      navigation.goBack();
+                    }
+                  } catch (error) {
+                    console.error('Navigation error:', error);
                   }
                 }}
                 style={styles.backButton}
@@ -112,8 +116,15 @@ export default function ManageScreen({navigation}) {
                 <TouchableOpacity 
                   style={styles.buttonOutline}
                   onPress={() => {
-                    if (navigation && navigation.navigate) {
-                      navigation.navigate('DataPlanScreen');
+                    try {
+                      if (navigation && navigation.navigate) {
+                        navigation.navigate('DataPlanScreen', {
+                          countryName: 'Germany',
+                          countryFlag: 'de'
+                        });
+                      }
+                    } catch (error) {
+                      console.error('Navigation error:', error);
                     }
                   }}
                 >
@@ -122,8 +133,22 @@ export default function ManageScreen({navigation}) {
                 <TouchableOpacity 
                   style={styles.buttonFilled}
                   onPress={() => {
-                    if (navigation && navigation.navigate) {
-                      navigation.navigate('DataPlan');
+                    try {
+                      if (navigation && navigation.navigate) {
+                        // Pass plan data based on the current plan shown
+                        navigation.navigate('DataPlan', {
+                          countryName: 'Germany',
+                          countryFlag: 'de',
+                          planData: {
+                            data: '1 GB',
+                            duration: '3 Days',
+                            newPrice: '0',
+                            oldPrice: null
+                          }
+                        });
+                      }
+                    } catch (error) {
+                      console.error('Navigation error:', error);
                     }
                   }}
                 >

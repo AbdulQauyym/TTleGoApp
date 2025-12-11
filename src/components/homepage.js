@@ -11,7 +11,7 @@ const slider2Image = require('../assets/slider2.jpeg');
 const slider3Image = require('../assets/slider3.jpeg');
 const slider4Image = require('../assets/slider4.jpeg');
 
-const { width: screenWidth } = Dimensions.get('window');
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 // Default countries fallback - defined before component to use in useState
 const getDefaultCountries = () => {
@@ -281,7 +281,7 @@ function HomeScreen({navigation}) {
 
   // Auto-scroll advertisements
   useEffect(() => {
-    const slideWidth = screenWidth - 40; // Full width minus padding
+    const slideWidth = screenWidth * 0.9; // 90% of screen width
     const scrollDistance = slideWidth + 12; // slide width + marginRight
     
     const interval = setInterval(() => {
@@ -301,7 +301,7 @@ function HomeScreen({navigation}) {
   }, [advertisements.length]);
 
   const handleAdScroll = (event) => {
-    const slideWidth = screenWidth - 40;
+    const slideWidth = screenWidth * 0.9; // 90% of screen width
     const scrollDistance = slideWidth + 12;
     const scrollPosition = event.nativeEvent.contentOffset.x;
     const index = Math.round(scrollPosition / scrollDistance);
@@ -452,7 +452,7 @@ function HomeScreen({navigation}) {
                   <Image 
                     source={imageSource}
                     style={ad.isPromotional ? styles.adPromoImage : styles.adImage}
-                    resizeMode="cover"
+                    resizeMode={ad.isPromotional ? "contain" : "cover"}
                     onError={(error) => {
                       // Silently handle image errors
                     }}
@@ -784,8 +784,8 @@ const styles = StyleSheet.create({
   expiry: { fontSize: 12, color: '#999', marginTop: 8 },
   sectionTitleContainer: {
     position: 'relative',
-    marginTop: 30,
-    marginBottom: 16,
+    marginTop: 20,
+    marginBottom: 8,
     paddingHorizontal: 20,
   },
   sectionTitle: { 
@@ -794,7 +794,7 @@ const styles = StyleSheet.create({
   },
   tabRow: { 
     flexDirection: 'row', 
-    marginTop: 12,
+    marginTop: 4,
     marginBottom: 20,
     marginLeft: 20,
     marginRight: 20,
@@ -906,11 +906,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 0,
   },
   adScrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: screenWidth * 0.05, // 5% padding on each side for responsive design
   },
   adSlide: {
-    width: screenWidth - 40, // Full width minus horizontal padding
-    height: 140,
+    width: screenWidth * 0.9, // 90% of screen width
+    height: screenHeight * 0.18, // 18% of screen height (responsive)
     borderRadius: 16,
     overflow: 'hidden',
     marginRight: 12,
@@ -939,7 +939,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     opacity: 1,
-    resizeMode: 'cover',
+    resizeMode: 'contain', // Changed to 'contain' to show full image without cropping
   },
   adTextContainer: {
     flex: 1,

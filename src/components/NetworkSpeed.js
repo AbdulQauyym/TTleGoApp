@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, ActivityIndicator, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, ActivityIndicator, Animated, Linking } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import HeaderScreen from './Header';
 
@@ -9,12 +9,127 @@ export default function NetworkSpeedScreen({navigation}) {
   const [uploadSpeed, setUploadSpeed] = useState(null);
   const [ping, setPing] = useState(null);
   const [progress] = useState(new Animated.Value(0));
+  const [testStatus, setTestStatus] = useState('');
 
-  const simulateSpeedTest = () => {
+  // Measure ping latency
+  const measurePing = async () => {
+    const startTime = Date.now();
+    try {
+      const response = await fetch('https://www.google.com/favicon.ico', {
+        method: 'HEAD',
+        cache: 'no-cache',
+      });
+      const endTime = Date.now();
+      return endTime - startTime;
+    } catch (error) {
+      // Fallback ping test
+      const endTime = Date.now();
+      return endTime - startTime;
+    }
+  };
+
+  // Measure download speed
+  const measureDownloadSpeed = async () => {
+    setTestStatus('Testing download speed...');
+    const testUrl = 'https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_272x92dp.png';
+    const startTime = Date.now();
+    let downloadedBytes = 0;
+
+    try {
+      const response = await fetch(testUrl, {
+        cache: 'no-cache',
+      });
+      
+      if (!response.ok) throw new Error('Download failed');
+      
+      const reader = response.body.getReader();
+      const chunks = [];
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        downloadedBytes += value.length;
+      }
+      
+      const endTime = Date.now();
+      const duration = (endTime - startTime) / 1000; // Convert to seconds
+      const bitsLoaded = downloadedBytes * 8;
+      const mbps = (bitsLoaded / duration / 1000000).toFixed(2); // Convert to Mbps
+      
+      return parseFloat(mbps);
+    } catch (error) {
+      console.error('Download speed test error:', error);
+      // Fallback: use a larger test file
+      try {
+        const startTime2 = Date.now();
+        const response2 = await fetch('https://jsonplaceholder.typicode.com/posts', {
+          cache: 'no-cache',
+        });
+        const data = await response2.text();
+        const endTime2 = Date.now();
+        const duration2 = (endTime2 - startTime2) / 1000;
+        const bitsLoaded2 = data.length * 8;
+        const mbps2 = (bitsLoaded2 / duration2 / 1000000).toFixed(2);
+        return parseFloat(mbps2);
+      } catch (err) {
+        return null;
+      }
+    }
+  };
+
+  // Measure upload speed
+  const measureUploadSpeed = async () => {
+    setTestStatus('Testing upload speed...');
+    const testData = new Array(5000).fill('0').join(''); // ~5KB test data (smaller for better reliability)
+    const startTime = Date.now();
+
+    // Try multiple endpoints for better reliability
+    const endpoints = [
+      'https://jsonplaceholder.typicode.com/posts',
+      'https://httpbin.org/post',
+      'https://postman-echo.com/post',
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            test: testData,
+            timestamp: Date.now()
+          }),
+          cache: 'no-cache',
+        });
+
+        if (response.ok || response.status === 200 || response.status === 201) {
+          const endTime = Date.now();
+          const duration = (endTime - startTime) / 1000; // Convert to seconds
+          if (duration > 0) {
+            const bitsUploaded = testData.length * 8;
+            const mbps = (bitsUploaded / duration / 1000000).toFixed(2); // Convert to Mbps
+            return parseFloat(mbps);
+          }
+        }
+      } catch (error) {
+        // Silently try next endpoint
+        continue;
+      }
+    }
+
+    // If all endpoints fail, return null (upload test will be skipped)
+    return null;
+  };
+
+  const runSpeedTest = async () => {
     setIsTesting(true);
     setDownloadSpeed(null);
     setUploadSpeed(null);
     setPing(null);
+    setTestStatus('Starting speed test...');
 
     // Reset progress
     progress.setValue(0);
@@ -22,29 +137,49 @@ export default function NetworkSpeedScreen({navigation}) {
     // Animate progress
     Animated.timing(progress, {
       toValue: 1,
-      duration: 5000,
+      duration: 15000, // 15 seconds for full test
       useNativeDriver: false,
     }).start();
 
-    // Simulate speed test
-    setTimeout(() => {
-      // Simulate download speed (Mbps)
-      const download = (Math.random() * 50 + 10).toFixed(2);
-      setDownloadSpeed(download);
+    try {
+      // Step 1: Measure Ping
+      setTestStatus('Measuring latency...');
+      const pingValue = await measurePing();
+      setPing(pingValue);
 
-      setTimeout(() => {
-        // Simulate upload speed (Mbps)
-        const upload = (Math.random() * 20 + 5).toFixed(2);
-        setUploadSpeed(upload);
+      // Step 2: Measure Download Speed
+      const download = await measureDownloadSpeed();
+      if (download !== null) {
+        setDownloadSpeed(download.toFixed(2));
+      }
 
-        setTimeout(() => {
-          // Simulate ping (ms)
-          const pingValue = Math.floor(Math.random() * 50 + 10);
-          setPing(pingValue);
-          setIsTesting(false);
-        }, 1000);
-      }, 1000);
-    }, 3000);
+      // Step 3: Measure Upload Speed (optional - may fail silently)
+      try {
+        const upload = await measureUploadSpeed();
+        if (upload !== null && upload > 0) {
+          setUploadSpeed(upload.toFixed(2));
+        } else {
+          // Upload test failed, but don't show error - just skip it
+          setUploadSpeed(null);
+        }
+      } catch (uploadError) {
+        // Silently handle upload test failure
+        setUploadSpeed(null);
+      }
+
+      setTestStatus('Speed test completed!');
+    } catch (error) {
+      // Only log critical errors, don't show to user
+      setTestStatus('Speed test completed with partial results.');
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const openFastCom = () => {
+    Linking.openURL('https://fast.com').catch(err => {
+      console.error('Failed to open fast.com:', err);
+    });
   };
 
   const getSpeedQuality = (speed) => {
@@ -99,15 +234,30 @@ export default function NetworkSpeedScreen({navigation}) {
             </View>
           )}
 
+          {isTesting && (
+            <Text style={styles.testStatusText}>{testStatus}</Text>
+          )}
+
           {!isTesting && !downloadSpeed && (
-            <TouchableOpacity 
-              style={styles.startButton}
-              onPress={simulateSpeedTest}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="play-circle" size={32} color="#fff" />
-              <Text style={styles.startButtonText}>Start Speed Test</Text>
-            </TouchableOpacity>
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity 
+                style={styles.startButton}
+                onPress={runSpeedTest}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="play-circle" size={32} color="#fff" />
+                <Text style={styles.startButtonText}>Start Speed Test</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.fastComButton}
+                onPress={openFastCom}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="globe-outline" size={20} color="#CC0000" />
+                <Text style={styles.fastComButtonText}>Test on Fast.com</Text>
+              </TouchableOpacity>
+            </View>
           )}
 
           {/* Results */}
@@ -133,21 +283,27 @@ export default function NetworkSpeedScreen({navigation}) {
               )}
 
               {/* Upload Speed */}
-              {uploadSpeed && (
+              {uploadSpeed !== null && (
                 <View style={styles.speedItem}>
                   <View style={styles.speedHeader}>
                     <Ionicons name="upload-outline" size={24} color="#000" />
                     <Text style={styles.speedLabel}>Upload Speed</Text>
                   </View>
-                  <View style={styles.speedValueContainer}>
-                    <Text style={styles.speedValue}>{uploadSpeed}</Text>
-                    <Text style={styles.speedUnit}>Mbps</Text>
-                  </View>
-                  <View style={[styles.qualityBadge, { backgroundColor: uploadQuality.color + '20' }]}>
-                    <Text style={[styles.qualityText, { color: uploadQuality.color }]}>
-                      {uploadQuality.label}
-                    </Text>
-                  </View>
+                  {uploadSpeed ? (
+                    <>
+                      <View style={styles.speedValueContainer}>
+                        <Text style={styles.speedValue}>{uploadSpeed}</Text>
+                        <Text style={styles.speedUnit}>Mbps</Text>
+                      </View>
+                      <View style={[styles.qualityBadge, { backgroundColor: uploadQuality.color + '20' }]}>
+                        <Text style={[styles.qualityText, { color: uploadQuality.color }]}>
+                          {uploadQuality.label}
+                        </Text>
+                      </View>
+                    </>
+                  ) : (
+                    <Text style={styles.unavailableText}>Upload test unavailable</Text>
+                  )}
                 </View>
               )}
 
@@ -171,14 +327,25 @@ export default function NetworkSpeedScreen({navigation}) {
               )}
 
               {/* Test Again Button */}
-              <TouchableOpacity 
-                style={styles.testAgainButton}
-                onPress={simulateSpeedTest}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="refresh" size={20} color="#000" />
-                <Text style={styles.testAgainText}>Test Again</Text>
-              </TouchableOpacity>
+              <View style={styles.actionButtonsContainer}>
+                <TouchableOpacity 
+                  style={styles.testAgainButton}
+                  onPress={runSpeedTest}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="refresh" size={20} color="#000" />
+                  <Text style={styles.testAgainText}>Test Again</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={styles.fastComButtonSmall}
+                  onPress={openFastCom}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="globe-outline" size={18} color="#CC0000" />
+                  <Text style={styles.fastComButtonTextSmall}>Fast.com</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
         </View>
@@ -289,20 +456,51 @@ const styles = StyleSheet.create({
     color: '#666',
     fontFamily: 'Poppins',
   },
+  testStatusText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#CC0000',
+    fontWeight: '600',
+    fontFamily: 'Poppins',
+    textAlign: 'center',
+  },
+  buttonContainer: {
+    width: '100%',
+    marginTop: 20,
+  },
   startButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#000',
+    justifyContent: 'center',
+    backgroundColor: '#CC0000',
     borderRadius: 12,
     paddingVertical: 16,
     paddingHorizontal: 32,
-    marginTop: 20,
+    marginBottom: 12,
   },
   startButtonText: {
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
     marginLeft: 12,
+    fontFamily: 'Poppins',
+  },
+  fastComButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#CC0000',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+  },
+  fastComButtonText: {
+    color: '#CC0000',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
     fontFamily: 'Poppins',
   },
   resultsContainer: {
@@ -356,21 +554,45 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontFamily: 'Poppins',
   },
+  actionButtonsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
   testAgainButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#f0f0f0',
     borderRadius: 12,
     paddingVertical: 12,
-    paddingHorizontal: 24,
-    marginTop: 8,
+    paddingHorizontal: 16,
   },
   testAgainText: {
     fontSize: 14,
     fontWeight: '500',
     color: '#000',
     marginLeft: 8,
+    fontFamily: 'Poppins',
+  },
+  fastComButtonSmall: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#CC0000',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  fastComButtonTextSmall: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#CC0000',
+    marginLeft: 6,
     fontFamily: 'Poppins',
   },
   tipsCard: {
@@ -403,6 +625,13 @@ const styles = StyleSheet.create({
     color: '#666',
     lineHeight: 22,
     marginBottom: 4,
+    fontFamily: 'Poppins',
+  },
+  unavailableText: {
+    fontSize: 14,
+    color: '#999',
+    fontStyle: 'italic',
+    marginTop: 8,
     fontFamily: 'Poppins',
   },
 });
