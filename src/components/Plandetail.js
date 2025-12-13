@@ -186,7 +186,7 @@ export default function DataPlan({navigation, route}) {
     coverage: 'Coverage may not include overseas territories under the jurisdiction of the specified country (or countries) please contact customer support to confirm before purchasing',
     provider: 'Standard Provider'
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // Loading state for plan details
 
   // Fetch plan details from API
   const loadPlanDetails = useCallback(async () => {

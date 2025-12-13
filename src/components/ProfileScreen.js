@@ -1,12 +1,13 @@
 // ProfileScreen.js
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions, Modal } from 'react-native';
 import HeaderScreen from './Header';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 
 export default function ProfileScreen({navigation}) {
   const [dimensions, setDimensions] = useState({ width: 375, height: 667 });
+  const [userDetailsModalVisible, setUserDetailsModalVisible] = useState(false);
 
   useEffect(() => {
     // Use safe dimensions utility
@@ -33,11 +34,9 @@ export default function ProfileScreen({navigation}) {
   const SCREEN_HEIGHT = dimensions?.height || 667;
   const HEADER_HEIGHT = SCREEN_HEIGHT * 0.38; // 38% of screen height
   const menuItems = [
-    { label: 'Promos', icon: 'pricetags-outline', screen:'PromoScreen' },
     { label: 'Friends', icon: 'people-outline', screen:'InviteFriendsScreen' },
     { label: 'Help Center', icon: 'help-circle-outline', screen:'HelpCenterScreen'},
     { label: 'Settings', icon: 'settings-outline', screen:'ManageScreen' },
-    { label: 'Order History', icon: 'receipt-outline', screen:'OrderHistoryScreen' },
     { label: 'About Us', icon: 'information-circle-outline', screen:'AboutScreen' },
   ];
 
@@ -49,12 +48,18 @@ const profile = require("../assets/profile.png");
          {/* Header */}
       <View style={[styles.header, { height: HEADER_HEIGHT }]}>
         <View style={styles.headerTop}>
-       <View style={styles.profileImageContainer}>
+       <TouchableOpacity 
+         style={styles.profileImageContainer}
+         onPress={() => setUserDetailsModalVisible(true)}
+       >
          <Ionicons name="person-circle" size={60} color="#fff" />
-       </View>
-    <View style={styles.textContainer}>
+       </TouchableOpacity>
+    <TouchableOpacity 
+      style={styles.textContainer}
+      onPress={() => setUserDetailsModalVisible(true)}
+    >
     <Text style={styles.headerTitle}>Guest</Text>
-          </View>
+          </TouchableOpacity>
           <TouchableOpacity 
             style={styles.loginButton}
             onPress={() => {
@@ -93,12 +98,7 @@ const profile = require("../assets/profile.png");
            onPress={() => {
              // Handle cross-tab navigation
              const parent = navigation.getParent();
-             if (item.screen === 'PromoScreen') {
-               // Navigate to Home tab, then PromoScreen
-               if (parent) {
-                 parent.navigate('Home', { screen: 'PromoScreen' });
-               }
-             } else if (item.screen === 'ManageScreen') {
+             if (item.screen === 'ManageScreen') {
                // Navigate to Manage tab
                if (parent) {
                  parent.navigate('Manage', { screen: 'ManageMain' });
@@ -135,6 +135,83 @@ const profile = require("../assets/profile.png");
         <Ionicons name="log-out-outline" size={20} color="#fff" style={styles.logoutIcon} />
         <Text style={styles.logoutText}>Log Out</Text>
       </TouchableOpacity>
+
+      {/* User Details Modal */}
+      <Modal
+        visible={userDetailsModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setUserDetailsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {/* Modal Header */}
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>User Details</Text>
+              <TouchableOpacity onPress={() => setUserDetailsModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+
+            {/* User Information */}
+            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
+              <View style={styles.userInfoSection}>
+                <View style={styles.userAvatarContainer}>
+                  <Ionicons name="person-circle" size={100} color="#CC0000" />
+                </View>
+                
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Name:</Text>
+                  <Text style={styles.infoValue}>Guest User</Text>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Email:</Text>
+                  <Text style={styles.infoValue}>guest@example.com</Text>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Phone:</Text>
+                  <Text style={styles.infoValue}>+1 (555) 000-0000</Text>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>User ID:</Text>
+                  <Text style={styles.infoValue}>GUEST-12345</Text>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Account Type:</Text>
+                  <Text style={styles.infoValue}>Guest</Text>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Member Since:</Text>
+                  <Text style={styles.infoValue}>--</Text>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Total Orders:</Text>
+                  <Text style={styles.infoValue}>0</Text>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Points Balance:</Text>
+                  <Text style={styles.infoValue}>0 pts</Text>
+                </View>
+              </View>
+            </ScrollView>
+
+            {/* Close Button */}
+            <TouchableOpacity 
+              style={styles.modalCloseButton}
+              onPress={() => setUserDetailsModalVisible(false)}
+            >
+              <Text style={styles.modalCloseButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -202,11 +279,18 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   loginButton: {
-    backgroundColor: '#1E3A8A', // Dark blue color like in snapshot
+    backgroundColor: '#CC0000',
     paddingHorizontal: 20,
     paddingVertical: 8,
     borderRadius: 8,
     marginLeft: 10,
+    borderWidth: 1,
+    borderColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   loginButtonText: {
     color: '#fff',
@@ -257,4 +341,83 @@ const styles = StyleSheet.create({
   },
   logoutIcon: { marginRight: 10 },
   logoutText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    width: '90%',
+    maxWidth: 400,
+    maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333333',
+    fontFamily: 'Poppins',
+  },
+  modalScrollView: {
+    maxHeight: 400,
+  },
+  userInfoSection: {
+    padding: 20,
+  },
+  userAvatarContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  infoLabel: {
+    fontSize: 16,
+    color: '#666666',
+    fontWeight: '500',
+    fontFamily: 'Poppins',
+    flex: 1,
+  },
+  infoValue: {
+    fontSize: 16,
+    color: '#000000',
+    fontWeight: '600',
+    fontFamily: 'Poppins',
+    flex: 1,
+    textAlign: 'right',
+  },
+  modalCloseButton: {
+    backgroundColor: '#CC0000',
+    paddingVertical: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    margin: 20,
+    marginTop: 10,
+  },
+  modalCloseButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: 'Poppins',
+  },
 });

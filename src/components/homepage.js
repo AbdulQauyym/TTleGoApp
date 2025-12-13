@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, Image, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Linking, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, Image, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Linking, ActivityIndicator, TextInput } from 'react-native';
 import HeaderScreen from './Header';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { scaleSize, scaleFont, widthPercentage, heightPercentage } from '../utils/dimensions';
@@ -13,87 +13,20 @@ const slider4Image = require('../assets/slider4.jpeg');
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-// Default countries fallback - defined before component to use in useState
-const getDefaultCountries = () => {
-  return [
-    { name: 'Afghanistan', price: 'From $10.99', flag: 'af' },
-    { name: 'Austria', price: 'From €9.99', flag: 'at' },
-    { name: 'Belgium', price: 'From €8.99', flag: 'be' },
-    { name: 'Canada', price: 'From $12.99', flag: 'ca' },
-    { name: 'France', price: 'From €8.99', flag: 'fr' },
-    { name: 'Germany', price: 'From €9.99', flag: 'de' },
-    { name: 'Greece', price: 'From €7.99', flag: 'gr' },
-    { name: 'Italy', price: 'From €8.99', flag: 'it' },
-    { name: 'Netherlands', price: 'From €8.99', flag: 'nl' },
-    { name: 'Poland', price: 'From €6.99', flag: 'pl' },
-    { name: 'Portugal', price: 'From €7.99', flag: 'pt' },
-    { name: 'Spain', price: 'From €7.99', flag: 'es' },
-    { name: 'Sweden', price: 'From €9.99', flag: 'se' },
-    { name: 'Switzerland', price: 'From €10.99', flag: 'ch' },
-    { name: 'United Kingdom', price: 'From £7.99', flag: 'gb' },
-    { name: 'United States', price: 'From $9.99', flag: 'us' },
-  ];
-};
-
-// eSIM advertisement data - defined outside component to avoid recreation
-const advertisements = [
-  { 
-    id: 1, 
-    title: 'Thailand 2025 Deal', 
-    description: '50% OFF Offer - High-Speed Connectivity', 
-    color: '#CC0000',
-    image: slider1Image, // Local image from assets
-    isLocalImage: true,
-    isPromotional: true // Full image display without text overlay
-  },
-  { 
-    id: 2, 
-    title: 'Special Promotion', 
-    description: 'Exclusive deals and offers', 
-    color: '#CC0000',
-    image: slider2Image, // Local image from assets
-    isLocalImage: true,
-    isPromotional: true // Full image display without text overlay
-  },
-  { 
-    id: 3, 
-    title: 'Premium Offer', 
-    description: 'Best deals and connectivity', 
-    color: '#CC0000',
-    image: slider3Image, // Local image from assets
-    isLocalImage: true,
-    isPromotional: true // Full image display without text overlay
-  },
-  { 
-    id: 4, 
-    title: 'Exclusive Deal', 
-    description: 'Limited time offers', 
-    color: '#CC0000',
-    image: slider4Image, // Local image from assets
-    isLocalImage: true,
-    isPromotional: true // Full image display without text overlay
-  },
-];
-
 function HomeScreen({navigation}) {
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
   const [activeTab, setActiveTab] = useState('Local'); // 'Local', 'Regional', 'Global'
   const adScrollViewRef = useRef(null);
-  const [countries, setCountries] = useState(getDefaultCountries());
-  const [loading, setLoading] = useState(false);
+  const [countries, setCountries] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [regionalPackagesFromAPI, setRegionalPackagesFromAPI] = useState([]);
   const [loadingRegional, setLoadingRegional] = useState(false);
-
-  // Safety check for navigation
-  if (!navigation) {
-    console.error('HomeScreen: navigation prop is missing');
-  }
+  const [searchQuery, setSearchQuery] = useState('');
 
   const loadCountries = useCallback(async () => {
     try {
-      // Load API data in background without showing loading state
-      // Default countries are already displayed, so no loading indicator needed
+      setLoading(true);
       setError(null);
       const data = await fetchCountries();
       
@@ -104,17 +37,18 @@ function HomeScreen({navigation}) {
         setError(null); // Clear any previous errors
         console.log(`Loaded ${data.length} countries from API`);
       } else {
-        // Fallback to default countries if API returns empty array
-        console.log('API returned empty data, using default countries');
-        setCountries(getDefaultCountries());
+        // No countries from API - show empty state
+        console.log('API returned empty data');
+        setCountries([]);
         setError(null);
       }
     } catch (err) {
-      // Silently fallback to default countries on error
-      // Only log to console, don't show error UI
-      console.log('Using default countries (API not configured or unavailable):', err.message);
-      setCountries(getDefaultCountries());
-      setError(null); // Don't show error if we have fallback data
+      // Show error state if API fails
+      console.error('Error loading countries from API:', err.message);
+      setCountries([]);
+      setError('Failed to load countries. Please try again.');
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -149,6 +83,30 @@ function HomeScreen({navigation}) {
     loadRegionalPackages();
   }, [loadCountries, loadRegionalPackages]);
 
+  // Safety check for navigation (after all hooks)
+  if (!navigation) {
+    console.error('HomeScreen: navigation prop is missing');
+  }
+
+  // Regions list for Regional tab
+  const regionsList = [
+    { name: 'Africa', iconColor: '#FFC107' }, // Yellow
+    { name: 'Asia', iconColor: '#1976D2' }, // Dark blue
+    { name: 'Europe', iconColor: '#03A9F4' }, // Light blue
+    { name: 'North America', iconColor: '#4CAF50' }, // Green
+    { name: 'South America', iconColor: '#F44336' }, // Red
+    { name: 'Middle East', iconColor: '#8BC34A' }, // Light green
+  ];
+
+  // Filter countries based on search query (computed before return to avoid hook issues)
+  const filteredCountries = countries.filter((item) => 
+    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Filter regions based on search query
+  const filteredRegions = regionsList.filter((region) =>
+    region.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   // Regional eSIM packages with data plans
   const regionalPackages = [
@@ -279,9 +237,49 @@ function HomeScreen({navigation}) {
     },
   ];
 
+  // eSIM advertisement data - defined outside component to avoid recreation
+  const advertisements = [
+    { 
+      id: 1, 
+      title: 'Thailand 2025 Deal', 
+      description: '50% OFF Offer - High-Speed Connectivity', 
+      color: '#CC0000',
+      image: slider1Image, // Local image from assets
+      isLocalImage: true,
+      isPromotional: true // Full image display without text overlay
+    },
+    { 
+      id: 2, 
+      title: 'Special Promotion', 
+      description: 'Exclusive deals and offers', 
+      color: '#CC0000',
+      image: slider2Image, // Local image from assets
+      isLocalImage: true,
+      isPromotional: true // Full image display without text overlay
+    },
+    { 
+      id: 3, 
+      title: 'Premium Offer', 
+      description: 'Best deals and connectivity', 
+      color: '#CC0000',
+      image: slider3Image, // Local image from assets
+      isLocalImage: true,
+      isPromotional: true // Full image display without text overlay
+    },
+    { 
+      id: 4, 
+      title: 'Exclusive Deal', 
+      description: 'Limited time offers', 
+      color: '#CC0000',
+      image: slider4Image, // Local image from assets
+      isLocalImage: true,
+      isPromotional: true // Full image display without text overlay
+    },
+  ];
+
   // Auto-scroll advertisements
   useEffect(() => {
-    const slideWidth = screenWidth * 0.9; // 90% of screen width
+    const slideWidth = screenWidth - 40; // Full width minus padding
     const scrollDistance = slideWidth + 12; // slide width + marginRight
     
     const interval = setInterval(() => {
@@ -301,7 +299,7 @@ function HomeScreen({navigation}) {
   }, [advertisements.length]);
 
   const handleAdScroll = (event) => {
-    const slideWidth = screenWidth * 0.9; // 90% of screen width
+    const slideWidth = screenWidth - 40;
     const scrollDistance = slideWidth + 12;
     const scrollPosition = event.nativeEvent.contentOffset.x;
     const index = Math.round(scrollPosition / scrollDistance);
@@ -335,7 +333,7 @@ function HomeScreen({navigation}) {
             <Text style={styles.packageName}>{pkg.planName}</Text>
           </View>
           <View style={styles.priceContainer}>
-            <Text style={styles.price}>{pkg.price}</Text>
+            <Text style={styles.price}>${pkg.price}</Text>
             <Ionicons name="chevron-forward" size={20} color="#999" />
           </View>
         </View>
@@ -350,28 +348,18 @@ function HomeScreen({navigation}) {
         
         <Text style={styles.validity}>Validity {pkg.validity}</Text>
         
-        {pkg.countryCount && (
-          <Text style={styles.countryCountLabel}>{pkg.countryCount} Countries Available</Text>
-        )}
-        
         <Text style={styles.supportedCountriesLabel}>Supported Countries</Text>
         <View style={styles.flagsContainer}>
-          {displayedCountries.map((country, index) => {
-            // Ensure flag is a valid string, default to 'us' if invalid
-            const flagCode = country && country.flag && typeof country.flag === 'string' 
-              ? country.flag.toLowerCase() 
-              : 'us';
-            return (
-              <Image
-                key={index}
-                source={{ uri: `https://flagcdn.com/w40/${flagCode}.png` }}
-                style={styles.countryFlag}
-                onError={() => {
-                  // Silently handle flag image errors
-                }}
-              />
-            );
-          })}
+          {displayedCountries.map((country, index) => (
+            <Image
+              key={index}
+              source={{ uri: `https://flagcdn.com/w40/${country.flag}.png` }}
+              style={styles.countryFlag}
+              onError={() => {
+                // Silently handle flag image errors
+              }}
+            />
+          ))}
           {remainingCount > 0 && (
             <View style={styles.moreFlags}>
               <Text style={styles.moreFlagsText}>+{remainingCount}</Text>
@@ -412,16 +400,12 @@ function HomeScreen({navigation}) {
             <Text style={styles.headerTitle}>Guest</Text>
           </View>
           <TouchableOpacity 
-            style={styles.searchButton}
+            style={styles.notificationButton}
             onPress={() => {
-              try {
-                navigation?.navigate('CountrySelectScreen');
-              } catch (error) {
-                console.error('Navigation error:', error);
-              }
+              // Notification button functionality can be added here
             }}
           >
-            <Ionicons name="search-outline" size={20} color="#CC0000" />
+            <Ionicons name="notifications-outline" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
         <View style={styles.bannerContainer}>
@@ -485,7 +469,19 @@ function HomeScreen({navigation}) {
 
       {/* Popular Countries */}
       <View style={styles.sectionTitleContainer}>
-        <Text style={styles.sectionTitle}>Other Popular Country</Text>
+        <Text style={styles.sectionTitle}>Data Plans</Text>
+      </View>
+
+      {/* Search Box */}
+      <View style={styles.searchContainer}>
+        <Ionicons name="search-outline" size={20} color="#999" style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Explore multiple countries..."
+          placeholderTextColor="#999"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
       </View>
      
       <View style={styles.tabRow}>
@@ -514,24 +510,6 @@ function HomeScreen({navigation}) {
           <Text style={activeTab === 'Global' ? styles.tabTextActive : styles.tabText}>Global eSIMs</Text>
         </TouchableOpacity>
       </View>
-
-
-{/* Header */}
-      {activeTab === 'Local' && (
-        <View style={styles.header2}>
-          <Text style={styles.headerTitle2}>Countries</Text>
-          <TouchableOpacity onPress={() => {
-            try {
-              navigation?.navigate('CountrySelectScreen');
-            } catch (error) {
-              console.error('Navigation error:', error);
-            }
-          }}>
-            <Text style={styles.seeAll}>See all →</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
       {/* Content based on active tab */}
       {activeTab === 'Local' && (
         <ScrollView 
@@ -539,12 +517,33 @@ function HomeScreen({navigation}) {
           contentContainerStyle={styles.countryList}
           showsVerticalScrollIndicator={true}
         >
-          {countries.length === 0 ? (
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#CC0000" />
+              <Text style={styles.loadingText}>Loading countries...</Text>
+            </View>
+          ) : error ? (
+            <View style={styles.errorContainer}>
+              <Ionicons name="alert-circle-outline" size={48} color="#CC0000" />
+              <Text style={styles.errorText}>Failed to load countries</Text>
+              <Text style={styles.errorSubText}>{error}</Text>
+              <TouchableOpacity 
+                style={styles.retryButton}
+                onPress={loadCountries}
+              >
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : countries.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>No countries available</Text>
             </View>
+          ) : filteredCountries.length === 0 && searchQuery ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No countries found matching "{searchQuery}"</Text>
+            </View>
           ) : (
-            countries.map((item, index) => (
+            filteredCountries.map((item, index) => (
               <TouchableOpacity 
                 key={`${item.name}-${item.flag}-${index}`} 
                 style={styles.countryItem}
@@ -590,13 +589,33 @@ function HomeScreen({navigation}) {
           {loadingRegional ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#CC0000" />
-              <Text style={styles.loadingText}>Loading regional packages...</Text>
+              <Text style={styles.loadingText}>Loading regions...</Text>
             </View>
-          ) : (regionalPackagesFromAPI.length > 0 ? regionalPackagesFromAPI : regionalPackages).length > 0 ? (
-            (regionalPackagesFromAPI.length > 0 ? regionalPackagesFromAPI : regionalPackages).map((pkg) => renderPackageCard(pkg))
-          ) : (
+          ) : filteredRegions.length === 0 && searchQuery ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No regional packages available</Text>
+              <Text style={styles.emptyText}>No regions found matching "{searchQuery}"</Text>
+            </View>
+          ) : (
+            <View style={styles.regionsList}>
+              {filteredRegions.map((region, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.regionItem}
+                  onPress={() => {
+                    try {
+                      navigation?.navigate('RegionalESimsScreen', { region: region.name });
+                    } catch (error) {
+                      console.error('Navigation error:', error);
+                    }
+                  }}
+                >
+                  <View style={[styles.regionIconContainer, { backgroundColor: region.iconColor }]}>
+                    <Ionicons name="map-outline" size={24} color="#fff" />
+                  </View>
+                  <Text style={styles.regionName}>{region.name}</Text>
+                  <Ionicons name="chevron-forward" size={20} color="#999" />
+                </TouchableOpacity>
+              ))}
             </View>
           )}
         </ScrollView>
@@ -652,19 +671,39 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 80,
   },
-  searchButton: {
-    backgroundColor: '#fff',
+  notificationButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 2,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 3,
+    elevation: 2,
+  },
+  searchIcon: {
+    marginRight: 12,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#000',
+    padding: 0,
   },
   bannerContainer: {
     marginTop: 0,
@@ -784,7 +823,7 @@ const styles = StyleSheet.create({
   expiry: { fontSize: 12, color: '#999', marginTop: 8 },
   sectionTitleContainer: {
     position: 'relative',
-    marginTop: 20,
+    marginTop: 16,
     marginBottom: 8,
     paddingHorizontal: 20,
   },
@@ -794,8 +833,8 @@ const styles = StyleSheet.create({
   },
   tabRow: { 
     flexDirection: 'row', 
-    marginTop: 4,
-    marginBottom: 20,
+    marginTop: 8,
+    marginBottom: 16,
     marginLeft: 20,
     marginRight: 20,
   },
@@ -906,22 +945,20 @@ const styles = StyleSheet.create({
     marginHorizontal: 0,
   },
   adScrollContent: {
-    paddingHorizontal: screenWidth * 0.05, // 5% padding on each side for responsive design
+    paddingHorizontal: 20,
   },
   adSlide: {
-    width: screenWidth * 0.9, // 90% of screen width
-    height: screenHeight * 0.18, // 18% of screen height (responsive)
+    width: screenWidth - 40, // Full width minus horizontal padding
+    height: 140,
     borderRadius: 16,
     overflow: 'hidden',
     marginRight: 12,
     position: 'relative',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
   adImage: {
     width: '100%',
@@ -974,7 +1011,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: 8,
     paddingHorizontal: 20,
   },
   paginationDot: {
@@ -997,6 +1034,37 @@ const styles = StyleSheet.create({
   regionalListContent: {
     paddingTop: 10,
     paddingBottom: 20,
+  },
+  regionsList: {
+    paddingTop: 10,
+  },
+  regionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  regionIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  regionName: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#000000',
+    fontFamily: 'Poppins',
   },
   packageCard: {
     backgroundColor: '#fff',

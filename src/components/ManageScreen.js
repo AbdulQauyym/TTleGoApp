@@ -200,13 +200,13 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     zIndex: 3,
     paddingHorizontal: 16,
   },
   headerLeft: {
     width: 40,
-    alignItems: 'flex-start',
+    alignItems: 'center',
   },
   headerRight: {
     width: 40,

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Image, Dimensions, SafeAreaView } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Image, Dimensions, SafeAreaView, ActivityIndicator } from 'react-native';
 import HeaderScreen from './Header';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { getSafeWindowDimensions, scaleSize } from '../utils/dimensions';
@@ -47,134 +47,155 @@ export default function RegionalESimsScreen({ navigation, route }) {
   const SCREEN_HEIGHT = dimensions?.height || 667;
   const HEADER_HEIGHT = SCREEN_HEIGHT * 0.38; // 38% of screen height
 
-  // Regional eSIM packages with data plans
-  const regionalPackages = [
-    {
-      id: 1,
-      planName: 'AfriConnect',
-      icon: '🌍',
-      price: '6.5',
-      data: '1 GB',
-      validity: '7 days',
-      countries: [
-        { name: 'Democratic Republic of Congo', flag: 'cd' },
-        { name: 'Ghana', flag: 'gh' },
-        { name: 'Mozambique', flag: 'mz' },
-        { name: 'South Africa', flag: 'za' },
-        { name: 'Kenya', flag: 'ke' },
-        { name: 'Nigeria', flag: 'ng' },
-        { name: 'Morocco', flag: 'ma' },
-        { name: 'Tunisia', flag: 'tn' },
-      ]
-    },
-    {
-      id: 2,
-      planName: 'Caribbean',
-      icon: '🏝️',
-      price: '7.99',
-      data: '1 GB',
-      validity: '7 days',
-      countries: [
-        { name: 'Antigua and Barbuda', flag: 'ag' },
-        { name: 'Aruba', flag: 'aw' },
-        { name: 'Barbados', flag: 'bb' },
-        { name: 'Bonaire', flag: 'bq' },
-        { name: 'British Virgin Islands', flag: 'vg' },
-        { name: 'Cayman Islands', flag: 'ky' },
-        { name: 'Cuba', flag: 'cu' },
-        { name: 'Dominica', flag: 'dm' },
-        { name: 'Dominican Republic', flag: 'do' },
-        { name: 'Grenada', flag: 'gd' },
-        { name: 'Haiti', flag: 'ht' },
-        { name: 'Jamaica', flag: 'jm' },
-        { name: 'Puerto Rico', flag: 'pr' },
-        { name: 'Trinidad and Tobago', flag: 'tt' },
-        { name: 'Turks and Caicos', flag: 'tc' },
-        { name: 'Saint Kitts and Nevis', flag: 'kn' },
-        { name: 'Saint Lucia', flag: 'lc' },
-        { name: 'Saint Vincent', flag: 'vc' },
-        { name: 'US Virgin Islands', flag: 'vi' },
-        { name: 'Bahamas', flag: 'bs' },
-      ]
-    },
-    {
-      id: 3,
-      planName: 'Europe Connect',
-      icon: '🌍',
-      price: '8.5',
-      data: '1 GB',
-      validity: '7 days',
-      countries: [
-        { name: 'France', flag: 'fr' },
-        { name: 'Germany', flag: 'de' },
-        { name: 'Italy', flag: 'it' },
-        { name: 'Spain', flag: 'es' },
-        { name: 'United Kingdom', flag: 'gb' },
-        { name: 'Netherlands', flag: 'nl' },
-        { name: 'Belgium', flag: 'be' },
-        { name: 'Austria', flag: 'at' },
-        { name: 'Switzerland', flag: 'ch' },
-        { name: 'Portugal', flag: 'pt' },
-      ]
-    },
-    {
-      id: 4,
-      planName: 'Asia Pacific',
-      icon: '🌏',
-      price: '9.5',
-      data: '1 GB',
-      validity: '7 days',
-      countries: [
-        { name: 'Japan', flag: 'jp' },
-        { name: 'South Korea', flag: 'kr' },
-        { name: 'China', flag: 'cn' },
-        { name: 'Singapore', flag: 'sg' },
-        { name: 'Thailand', flag: 'th' },
-        { name: 'Malaysia', flag: 'my' },
-        { name: 'Indonesia', flag: 'id' },
-        { name: 'Philippines', flag: 'ph' },
-        { name: 'Australia', flag: 'au' },
-        { name: 'New Zealand', flag: 'nz' },
-      ]
-    },
-    {
-      id: 5,
-      planName: 'Middle East',
-      icon: '🕌',
-      price: '7.5',
-      data: '1 GB',
-      validity: '7 days',
-      countries: [
-        { name: 'United Arab Emirates', flag: 'ae' },
-        { name: 'Saudi Arabia', flag: 'sa' },
-        { name: 'Israel', flag: 'il' },
-        { name: 'Jordan', flag: 'jo' },
-        { name: 'Qatar', flag: 'qa' },
-        { name: 'Turkey', flag: 'tr' },
-        { name: 'Egypt', flag: 'eg' },
-      ]
-    },
-    {
-      id: 6,
-      planName: 'The World is Yours',
-      icon: '🌎',
-      price: '10.5',
-      data: '1 GB',
-      validity: '7 days',
-      countries: [
-        { name: 'United States', flag: 'us' },
-        { name: 'United Kingdom', flag: 'gb' },
-        { name: 'France', flag: 'fr' },
-        { name: 'Germany', flag: 'de' },
-        { name: 'Japan', flag: 'jp' },
-        { name: 'Australia', flag: 'au' },
-        { name: 'Canada', flag: 'ca' },
-        { name: 'Singapore', flag: 'sg' },
-        { name: 'United Arab Emirates', flag: 'ae' },
-        { name: 'Brazil', flag: 'br' },
-      ]
-    },
-  ];
+  // State for regional packages
+  const [regionalPackages, setRegionalPackages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Get region from route params
+  const selectedRegion = route?.params?.region;
+
+  // Region color mapping
+  const regionColors = {
+    'Africa': '#FFC107',
+    'Asia': '#1976D2',
+    'Europe': '#03A9F4',
+    'North America': '#4CAF50',
+    'South America': '#F44336',
+    'Middle East': '#8BC34A',
+    'Oceania': '#9C27B0',
+  };
+
+  // Region icon mapping - using map icon with colors
+  const regionIcons = {
+    'Africa': 'map',
+    'Asia': 'map',
+    'Europe': 'map',
+    'North America': 'map',
+    'South America': 'map',
+    'Middle East': 'map',
+    'Oceania': 'map',
+  };
+
+  // Load regional packages from API
+  const loadRegionalPackages = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('Fetching regional packages from API...');
+      
+      // Fetch raw data directly from API
+      const BASE_URL = 'https://www.ttelgo.com/api';
+      const response = await fetch(`${BASE_URL}/plans/bundles/regional`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const apiData = await response.json();
+      console.log('Regional packages API response:', apiData);
+      
+      if (apiData && Array.isArray(apiData.bundles) && apiData.bundles.length > 0) {
+        // Group bundles by region
+        const regionMap = {};
+        
+        apiData.bundles.forEach(bundle => {
+          if (bundle.countries && Array.isArray(bundle.countries)) {
+            bundle.countries.forEach(country => {
+              const region = country.region || 'Other';
+              
+              if (!regionMap[region]) {
+                regionMap[region] = {
+                  id: region,
+                  planName: region,
+                  icon: regionIcons[region] || 'map',
+                  iconColor: regionColors[region] || '#CC0000',
+                  price: null,
+                  data: null,
+                  validity: null,
+                  countries: [],
+                  bundles: [],
+                };
+              }
+              
+              // Add country if not already in list
+              const countryExists = regionMap[region].countries.some(
+                c => c.name === country.name
+              );
+              
+              if (!countryExists) {
+                regionMap[region].countries.push({
+                  name: country.name,
+                  flag: country.iso?.toLowerCase() || getCountryCode(country.name),
+                  iso: country.iso,
+                });
+              }
+              
+              // Store bundle reference
+              if (!regionMap[region].bundles.some(b => b.name === bundle.name)) {
+                regionMap[region].bundles.push(bundle);
+              }
+              
+              // Set price (use first bundle's price as reference)
+              if (!regionMap[region].price && bundle.price) {
+                regionMap[region].price = bundle.price.toFixed(2);
+              }
+              
+              // Set data and validity from first bundle
+              if (!regionMap[region].data) {
+                if (bundle.unlimited || bundle.dataAmount === -1) {
+                  regionMap[region].data = 'Unlimited';
+                } else if (bundle.dataAmount) {
+                  const dataInGB = bundle.dataAmount / 1000;
+                  regionMap[region].data = dataInGB % 1 === 0 
+                    ? `${dataInGB} GB` 
+                    : `${dataInGB.toFixed(1)} GB`;
+                }
+              }
+              
+              if (!regionMap[region].validity && bundle.duration) {
+                regionMap[region].validity = `${bundle.duration} ${bundle.duration === 1 ? 'Day' : 'Days'}`;
+              }
+            });
+          }
+        });
+        
+        // Convert map to array and filter by selected region if provided
+        let packages = Object.values(regionMap);
+        
+        if (selectedRegion) {
+          packages = packages.filter(pkg => pkg.planName === selectedRegion);
+        }
+        
+        // Sort countries within each package
+        packages.forEach(pkg => {
+          pkg.countries.sort((a, b) => a.name.localeCompare(b.name));
+        });
+        
+        setRegionalPackages(packages);
+        console.log(`✅ Loaded ${packages.length} regional packages from API`);
+      } else {
+        console.warn('⚠️ API returned empty or invalid regional packages');
+        setRegionalPackages([]);
+      }
+    } catch (err) {
+      console.error('❌ Error loading regional packages:', err);
+      setError('Failed to load regional packages. Please try again.');
+      setRegionalPackages([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedRegion]);
+
+  // Load packages on component mount
+  useEffect(() => {
+    loadRegionalPackages();
+  }, [loadRegionalPackages]);
 
   const renderPackageCard = (pkg) => {
     const displayedCountries = pkg.countries.slice(0, 5);
@@ -184,7 +205,12 @@ export default function RegionalESimsScreen({ navigation, route }) {
       <View key={pkg.id} style={styles.packageCard}>
         <View style={styles.packageHeader}>
           <View style={styles.packageTitleContainer}>
-            <Text style={styles.packageIcon}>{pkg.icon}</Text>
+            <Ionicons 
+              name={pkg.icon === 'map' ? 'map-outline' : pkg.icon} 
+              size={24} 
+              color={pkg.iconColor || '#CC0000'} 
+              style={styles.packageIcon}
+            />
             <Text style={styles.packageName}>{pkg.planName}</Text>
           </View>
           <View style={styles.priceContainer}>
@@ -362,8 +388,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   packageIcon: {
-    fontSize: 24,
-    marginRight: 8,
+    marginRight: 12,
   },
   packageName: {
     fontSize: 18,
@@ -454,6 +479,64 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+    fontFamily: 'Poppins',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+    fontFamily: 'Poppins',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 20,
+  },
+  errorText: {
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#CC0000',
+    fontFamily: 'Poppins',
+    textAlign: 'center',
+  },
+  errorSubText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'Poppins',
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 20,
+    backgroundColor: '#CC0000',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: 'Poppins',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#999',
     fontFamily: 'Poppins',
   },
 });

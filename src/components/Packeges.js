@@ -185,9 +185,7 @@ export default function DataPlanScreen({ route, navigation }) {
                   style={styles.planDetailsButton}
                   onPress={() => navigation.navigate('DataPlan', {
                     countryName: countryName,
-                    countryFlag: countryFlag,
-                    bundleName: plan.bundleName,
-                    planData: plan
+                    countryFlag: countryFlag
                   })}
                 >
                   <Text style={styles.planDetailsText}>Plan Details</Text>
@@ -313,6 +311,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
+  },
+  cartButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   flagCircle: {
     width: 45,

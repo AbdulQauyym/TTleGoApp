@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, TextInput, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, TextInput, Dimensions, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import HeaderScreen from './Header';
+import { createESIMOrder, applyBundleToESIM, getOrderDetails } from '../services/api';
 
 export default function YourOrder({ navigation, route }) {
   const [dimensions, setDimensions] = useState({ width: 375, height: 667 });
@@ -31,8 +32,6 @@ export default function YourOrder({ navigation, route }) {
 
   const SCREEN_HEIGHT = dimensions?.height || 667;
   const HEADER_HEIGHT = SCREEN_HEIGHT * 0.38; // 38% of screen height
-  const [confirmChecked, setConfirmChecked] = useState(true);
-  const [pointsRedeemed, setPointsRedeemed] = useState(false);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(null);
   const [cardModalVisible, setCardModalVisible] = useState(false);
@@ -41,7 +40,7 @@ export default function YourOrder({ navigation, route }) {
   const [cvc, setCvc] = useState('');
   const [selectedCountry, setSelectedCountry] = useState('Germany');
   const [countryPickerVisible, setCountryPickerVisible] = useState(false);
-  const [validationErrors, setValidationErrors] = useState({});
+  const [isProcessing, setIsProcessing] = useState(false);
   
   const creditCardImg = require("../assets/credit_card.png");
   const paypalImg = require("../assets/paypal.png");
@@ -98,71 +97,100 @@ export default function YourOrder({ navigation, route }) {
     days: '30 Days',
     price: '35.18',
     oldPrice: '18',
+    bundleName: null, // Bundle name from eSIM Go API
+    iccid: null, // eSIM ICCID if available
   };
 
-  // Format card number (add spaces every 4 digits)
-  const formatCardNumber = (text) => {
-    const cleaned = text.replace(/\s/g, '').replace(/\D/g, '');
-    const formatted = cleaned.match(/.{1,4}/g)?.join(' ') || cleaned;
-    return formatted.slice(0, 19); // Max 16 digits + 3 spaces
-  };
+  // Handle complete purchase - activate bundle
+  const handleCompletePurchase = async () => {
+    setIsProcessing(true);
 
-  // Format expiry date (MM/YY)
-  const formatExpiryDate = (text) => {
-    const cleaned = text.replace(/\D/g, '');
-    if (cleaned.length >= 2) {
-      return cleaned.slice(0, 2) + '/' + cleaned.slice(2, 4);
-    }
-    return cleaned;
-  };
-
-  // Format CVC (3-4 digits only)
-  const formatCVC = (text) => {
-    return text.replace(/\D/g, '').slice(0, 4);
-  };
-
-  // Validate all fields
-  const validateCardForm = () => {
-    const errors = {};
-    
-    // Validate card number (should be 16 digits)
-    const cardNumberDigits = cardNumber.replace(/\s/g, '');
-    if (!cardNumberDigits || cardNumberDigits.length < 16) {
-      errors.cardNumber = 'Card number must be 16 digits';
-    }
-
-    // Validate expiry date (MM/YY format)
-    const expiryDigits = expiryDate.replace(/\//g, '');
-    if (!expiryDate || expiryDigits.length !== 4) {
-      errors.expiryDate = 'Please enter valid expiry date (MM/YY)';
-    } else {
-      const month = parseInt(expiryDigits.slice(0, 2));
-      if (month < 1 || month > 12) {
-        errors.expiryDate = 'Please enter valid month (01-12)';
+    try {
+      // Extract bundle name from order details or construct it
+      // Format: esim_{data}_{days}_{country}_{version}
+      // Example: esim_1GB_7D_GB_V2
+      let bundleName = orderDetails.bundleName;
+      
+      if (!bundleName) {
+        // Construct bundle name from order details
+        const dataAmount = orderDetails.data.replace(' GB', '').replace(' GB', '');
+        const days = orderDetails.days.replace(' Days', '').replace(' Day', '');
+        const countryCode = orderDetails.flag.toUpperCase();
+        bundleName = `esim_${dataAmount}GB_${days}D_${countryCode}_V2`;
       }
+
+      // If we have an ICCID, apply bundle directly
+      if (orderDetails.iccid) {
+        const result = await applyBundleToESIM(orderDetails.iccid, bundleName);
+        
+        Alert.alert(
+          'Success',
+          'Bundle has been activated successfully!',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Navigate back or to success screen
+                navigation.goBack();
+              },
+            },
+          ]
+        );
+      } else {
+        // Create a new order first
+        const orderResult = await createESIMOrder({
+          bundleName: bundleName,
+          quantity: 1,
+          autoAssign: true, // Auto-assign eSIM if available
+        });
+
+        // Get order details to retrieve eSIM ICCID
+        if (orderResult.reference) {
+          const orderDetailsResult = await getOrderDetails(orderResult.reference);
+          
+          // If order has eSIMs, apply bundle to the first one
+          if (orderDetailsResult.esims && orderDetailsResult.esims.length > 0) {
+            const iccid = orderDetailsResult.esims[0].iccid;
+            const applyResult = await applyBundleToESIM(iccid, bundleName);
+            
+            Alert.alert(
+              'Success',
+              'Order created and bundle activated successfully!',
+              [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    navigation.goBack();
+                  },
+                },
+              ]
+            );
+          } else {
+            Alert.alert(
+              'Order Created',
+              'Your order has been created. The bundle will be activated once the eSIM is assigned.',
+              [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    navigation.goBack();
+                  },
+                },
+              ]
+            );
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error completing purchase:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to complete purchase. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsProcessing(false);
     }
-
-    // Validate CVC (should be 3-4 digits)
-    if (!cvc || cvc.length < 3) {
-      errors.cvc = 'CVC must be 3-4 digits';
-    }
-
-    setValidationErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  // Check if form is valid
-  const isFormValid = () => {
-    const cardNumberDigits = cardNumber.replace(/\s/g, '');
-    const expiryDigits = expiryDate.replace(/\//g, '');
-    return (
-      cardNumberDigits.length === 16 &&
-      expiryDigits.length === 4 &&
-      parseInt(expiryDigits.slice(0, 2)) >= 1 &&
-      parseInt(expiryDigits.slice(0, 2)) <= 12 &&
-      cvc.length >= 3 &&
-      selectedCountry
-    );
   };
 
   return (
@@ -209,25 +237,6 @@ export default function YourOrder({ navigation, route }) {
       </View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        {/* TikTel Points Card */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>TikTel Points</Text>
-          <Text style={styles.cardText}>Bonus points for buying a 10GB or higher plan</Text>
-          <Text style={styles.bonusPoints}>200!</Text>
-          <Text style={styles.cardText}>Redeem now or add to your points pool for later</Text>
-          {!pointsRedeemed ? (
-            <TouchableOpacity 
-              style={styles.redeemButton}
-              onPress={() => setPointsRedeemed(true)}
-            >
-              <Text style={styles.redeemButtonText}>Redeem Bonus Now : </Text>
-              <Text style={styles.redeemPoints}>200pts</Text>
-            </TouchableOpacity>
-          ) : (
-            <Text style={styles.redeemedText}>Points redeemed!</Text>
-          )}
-        </View>
-
         {/* Add Payment Method Button */}
         <TouchableOpacity 
           style={styles.paymentButton}
@@ -236,30 +245,19 @@ export default function YourOrder({ navigation, route }) {
           <Text style={styles.paymentButtonText}>Add Payment Method</Text>
         </TouchableOpacity>
 
-        {/* Confirmation Checkbox */}
-        <View style={styles.checkboxContainer}>
-          <TouchableOpacity 
-            style={styles.checkbox}
-            onPress={() => setConfirmChecked(!confirmChecked)}
-          >
-            {confirmChecked && <Icon name="checkmark" size={16} color="#E53935" />}
-          </TouchableOpacity>
-          <Text style={styles.checkboxText}>
-            I confirm that I have an unlocked and{' '}
-            <Text style={styles.highlightText}>eSIM</Text> compatible device
-          </Text>
-        </View>
-
         {/* Legal Text */}
-        <Text style={styles.legalText}>
-          By Pressing "Complete Purchase" you agree to the{' '}
-          <Text style={styles.linkText}>Refund Policy</Text> and{' '}
-          <Text style={styles.linkText}>Terms & Conditions</Text>
-        </Text>
-
+      
         {/* Complete Purchase Button */}
-        <TouchableOpacity style={styles.completeButton}>
-          <Text style={styles.completeButtonText}>Complete Purchase</Text>
+        <TouchableOpacity 
+          style={[styles.completeButton, isProcessing && styles.completeButtonDisabled]}
+          onPress={handleCompletePurchase}
+          disabled={isProcessing}
+        >
+          {isProcessing ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.completeButtonText}>Complete Purchase</Text>
+          )}
         </TouchableOpacity>
       </ScrollView>
 
@@ -371,28 +369,14 @@ export default function YourOrder({ navigation, route }) {
         visible={cardModalVisible}
         transparent={true}
         animationType="slide"
-        onRequestClose={() => {
-          setCardModalVisible(false);
-          // Reset form when modal is closed
-          setCardNumber('');
-          setExpiryDate('');
-          setCvc('');
-          setValidationErrors({});
-        }}
+        onRequestClose={() => setCardModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             {/* Modal Header */}
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Add Card</Text>
-              <TouchableOpacity onPress={() => {
-                setCardModalVisible(false);
-                // Reset form when modal is closed
-                setCardNumber('');
-                setExpiryDate('');
-                setCvc('');
-                setValidationErrors({});
-              }}>
+              <TouchableOpacity onPress={() => setCardModalVisible(false)}>
                 <Icon name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
@@ -404,85 +388,41 @@ export default function YourOrder({ navigation, route }) {
               {/* Card Number */}
               <View style={styles.inputWrapper}>
                 <TextInput
-                  style={[
-                    styles.modalInput,
-                    validationErrors.cardNumber && styles.inputError
-                  ]}
-                  placeholder="Card Number *"
+                  style={styles.modalInput}
+                  placeholder="Card Number"
                   placeholderTextColor="#999"
                   value={cardNumber}
-                  onChangeText={(text) => {
-                    setCardNumber(formatCardNumber(text));
-                    if (validationErrors.cardNumber) {
-                      setValidationErrors({ ...validationErrors, cardNumber: null });
-                    }
-                  }}
+                  onChangeText={setCardNumber}
                   keyboardType="numeric"
-                  maxLength={19}
                 />
                 <Icon name="card" size={24} color="#2196F3" style={styles.inputIcon} />
               </View>
-              {validationErrors.cardNumber && (
-                <Text style={styles.errorText}>{validationErrors.cardNumber}</Text>
-              )}
 
               {/* MM / YY and CVC Row */}
               <View style={styles.inputRow}>
                 <View style={[styles.inputWrapper, styles.inputWrapperHalf]}>
                   <TextInput
-                    style={[
-                      styles.modalInput,
-                      validationErrors.expiryDate && styles.inputError
-                    ]}
-                    placeholder="MM / YY *"
+                    style={styles.modalInput}
+                    placeholder="MM / YY"
                     placeholderTextColor="#999"
                     value={expiryDate}
-                    onChangeText={(text) => {
-                      setExpiryDate(formatExpiryDate(text));
-                      if (validationErrors.expiryDate) {
-                        setValidationErrors({ ...validationErrors, expiryDate: null });
-                      }
-                    }}
+                    onChangeText={setExpiryDate}
                     keyboardType="numeric"
-                    maxLength={5}
                   />
                 </View>
                 <View style={[styles.inputWrapper, styles.inputWrapperHalf]}>
                   <TextInput
-                    style={[
-                      styles.modalInput,
-                      validationErrors.cvc && styles.inputError
-                    ]}
-                    placeholder="CVC *"
+                    style={styles.modalInput}
+                    placeholder="CVC"
                     placeholderTextColor="#999"
                     value={cvc}
-                    onChangeText={(text) => {
-                      setCvc(formatCVC(text));
-                      if (validationErrors.cvc) {
-                        setValidationErrors({ ...validationErrors, cvc: null });
-                      }
-                    }}
+                    onChangeText={setCvc}
                     keyboardType="numeric"
                     secureTextEntry
-                    maxLength={4}
                   />
                   <Icon name="card-outline" size={20} color="#999" style={styles.inputIcon} />
                 </View>
               </View>
-              {(validationErrors.expiryDate || validationErrors.cvc) && (
-                <View style={styles.errorRow}>
-                  {validationErrors.expiryDate && (
-                    <Text style={[styles.errorText, styles.errorTextHalf]}>
-                      {validationErrors.expiryDate}
-                    </Text>
-                  )}
-                  {validationErrors.cvc && (
-                    <Text style={[styles.errorText, styles.errorTextHalf]}>
-                      {validationErrors.cvc}
-                    </Text>
-                  )}
-                </View>
-              )}
 
               {/* Billing Address Section */}
               <Text style={styles.sectionTitle}>Billing Address</Text>
@@ -503,29 +443,13 @@ export default function YourOrder({ navigation, route }) {
 
               {/* Continue Button */}
               <TouchableOpacity 
-                style={[
-                  styles.modalContinueButton,
-                  !isFormValid() && styles.modalContinueButtonDisabled
-                ]}
+                style={styles.modalContinueButton}
                 onPress={() => {
-                  if (validateCardForm()) {
-                    setCardModalVisible(false);
-                    // Handle card addition
-                    // Reset form
-                    setCardNumber('');
-                    setExpiryDate('');
-                    setCvc('');
-                    setValidationErrors({});
-                  }
+                  setCardModalVisible(false);
+                  // Handle card addition
                 }}
-                disabled={!isFormValid()}
               >
-                <Text style={[
-                  styles.modalContinueButtonText,
-                  !isFormValid() && styles.modalContinueButtonTextDisabled
-                ]}>
-                  Continue
-                </Text>
+                <Text style={styles.modalContinueButtonText}>Continue</Text>
               </TouchableOpacity>
             </ScrollView>
 
@@ -594,7 +518,7 @@ const styles = StyleSheet.create({
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingHorizontal: 16,
     paddingTop: 80,
     zIndex: 100,
@@ -606,10 +530,10 @@ const styles = StyleSheet.create({
     elevation: 100,
   },
   backButton: {
-    width: 24,
+    width: 40,
     height: 40,
     justifyContent: 'center',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     zIndex: 101,
     elevation: 101,
   },
@@ -629,7 +553,7 @@ const styles = StyleSheet.create({
     elevation: 101,
   },
   headerSpacer: {
-    width: 24,
+    width: 40,
   },
   fixedCard: {
     backgroundColor: '#FFFFFF',
@@ -822,6 +746,10 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completeButtonDisabled: {
+    opacity: 0.6,
   },
   completeButtonText: {
     color: '#FFFFFF',
@@ -1053,31 +981,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000000',
     fontFamily: 'Poppins',
-  },
-  inputError: {
-    borderColor: '#F44336',
-    borderWidth: 1.5,
-  },
-  errorText: {
-    fontSize: 12,
-    color: '#F44336',
-    marginTop: -8,
-    marginBottom: 8,
-    marginLeft: 4,
-    fontFamily: 'Poppins',
-  },
-  errorRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: -8,
-    marginBottom: 8,
-  },
-  errorTextHalf: {
-    flex: 1,
-    marginRight: 8,
-  },
-  modalContinueButtonTextDisabled: {
-    color: '#999999',
   },
 });
 

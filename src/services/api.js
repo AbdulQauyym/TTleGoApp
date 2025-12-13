@@ -1,5 +1,21 @@
 const BASE_URL = 'https://www.ttelgo.com/api';
 const TTELGO_API = 'https://ttelgo.com/api';
+const ESIM_GO_API = 'https://api.esim-go.com/v2.4';
+
+// eSIM Go API Key - should be stored in environment variables in production
+// For now, this should be configured in your app settings
+// To get your API key:
+// 1. Log into https://sso.esim-go.com/login
+// 2. Navigate to Account Settings -> API Details
+// 3. Copy your API key and replace the value below
+const ESIM_GO_API_KEY = 'D7qgUQDxerIjTS-Ds6tZCHGxN_vrD3Y5eTc5WYZ9';
+
+// Helper function to validate API key
+const validateAPIKey = () => {
+  if (!ESIM_GO_API_KEY || ESIM_GO_API_KEY === 'YOUR_ESIM_GO_API_KEY') {
+    throw new Error('eSIM Go API key is not configured. Please set your API key in src/services/api.js');
+  }
+};
 
 /**
  * Fetch countries from the local bundles API
@@ -326,6 +342,137 @@ export const fetchPlanDetails = async (bundleName) => {
     return null;
   } catch (error) {
     console.error('Error fetching plan details:', error);
+    throw error;
+  }
+};
+
+/**
+ * Create an order using eSIM Go API
+ * @param {Object} orderData - Order data containing bundle name, quantity, etc.
+ * @returns {Promise<Object>} Order response object
+ */
+export const createESIMOrder = async (orderData) => {
+  try {
+    validateAPIKey();
+    
+    // According to eSIM Go API v2.4, orders must contain orderItems array
+    const requestBody = {
+      orderItems: [
+        {
+          bundleName: orderData.bundleName,
+          quantity: orderData.quantity || 1,
+          ...(orderData.autoAssign && { autoAssign: orderData.autoAssign }),
+        }
+      ]
+    };
+    
+    const response = await fetch(`${ESIM_GO_API}/orders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': ESIM_GO_API_KEY,
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const errorMessage = errorData.message || errorData.error || `HTTP error! status: ${response.status}`;
+      
+      // Provide more helpful error messages
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('Access denied. Please check your eSIM Go API key in src/services/api.js');
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error creating eSIM order:', error);
+    throw error;
+  }
+};
+
+/**
+ * Apply a bundle to an eSIM using eSIM Go API
+ * @param {string} iccid - eSIM ICCID
+ * @param {string} bundleName - Bundle name to apply
+ * @returns {Promise<Object>} Bundle application response
+ */
+export const applyBundleToESIM = async (iccid, bundleName) => {
+  try {
+    validateAPIKey();
+    
+    if (!iccid || !bundleName) {
+      throw new Error('ICCID and bundle name are required');
+    }
+
+    const response = await fetch(`${ESIM_GO_API}/esims/${iccid}/bundles`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': ESIM_GO_API_KEY,
+      },
+      body: JSON.stringify({
+        bundleName: bundleName,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const errorMessage = errorData.message || errorData.error || `HTTP error! status: ${response.status}`;
+      
+      // Provide more helpful error messages
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('Access denied. Please check your eSIM Go API key in src/services/api.js');
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error applying bundle to eSIM:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get order details from eSIM Go API
+ * @param {string} orderReference - Order reference ID
+ * @returns {Promise<Object>} Order details
+ */
+export const getOrderDetails = async (orderReference) => {
+  try {
+    validateAPIKey();
+    
+    const response = await fetch(`${ESIM_GO_API}/orders/${orderReference}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': ESIM_GO_API_KEY,
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const errorMessage = errorData.message || errorData.error || `HTTP error! status: ${response.status}`;
+      
+      // Provide more helpful error messages
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('Access denied. Please check your eSIM Go API key in src/services/api.js');
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching order details:', error);
     throw error;
   }
 };
