@@ -1,0 +1,17 @@
+server:
+  port: 8080
+
+esimgo:
+  # Base URL for eSIM Go API v2.4
+  api-base-url: https://api.esim-go.com/v2.4
+  # TODO: replace with your real eSIM Go API key
+  api-key: YOUR_ESIM_GO_API_KEY
+
+spring:
+  application:
+    name: esim-backend
+
+
+
+
+

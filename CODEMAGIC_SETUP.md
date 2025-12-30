@@ -1,138 +1,79 @@
 # Codemagic iOS Build Setup Guide
 
-This guide will help you set up Codemagic CI/CD to build iOS IPA files for your React Native app.
+## Step 1: Create App Store Connect API Key
 
-## Prerequisites
+1. Go to [App Store Connect](https://appstoreconnect.apple.com/)
+2. Sign in with your Apple Developer account
+3. Navigate to **Users and Access** → **Keys** tab
+4. Click the **+** button to create a new key
+5. Enter a name for the key (e.g., "Codemagic CI/CD")
+6. Select **App Manager** or **Admin** role
+7. Click **Generate**
+8. **IMPORTANT**: Download the `.p8` key file immediately (you can only download it once!)
+9. Note down:
+   - **Issuer ID** (shown at the top of the Keys page)
+   - **Key ID** (shown in the key name)
+   - **Private Key** (the `.p8` file content)
 
-1. **Apple Developer Account**: You need an active Apple Developer Program membership ($99/year)
-2. **GitHub Repository**: Your code should be pushed to https://github.com/AbdulQauyym/TTleGoApp
-3. **Codemagic Account**: Sign up at https://codemagic.io/
+## Step 2: Add API Key to Codemagic
 
-## Step 1: Sign Up for Codemagic
+1. Go to [Codemagic Dashboard](https://codemagic.io/)
+2. Click on your **Account Settings** (top right corner)
+3. Navigate to **Codemagic API** → **App Store Connect API keys**
+4. Click **Add new API key**
+5. Fill in the following:
+   - **Name**: Give it a descriptive name (e.g., "iOS App Store Key")
+   - **Issuer ID**: Paste the Issuer ID from Step 1
+   - **Key ID**: Paste the Key ID from Step 1
+   - **Private Key**: Open the `.p8` file you downloaded and copy its entire content (including `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----`)
+6. Click **Save**
 
-1. Go to https://codemagic.io/
-2. Click "Sign up" and connect your GitHub account
-3. Authorize Codemagic to access your repositories
+## Step 3: Add API Key to Your App's Environment Variables
 
-## Step 2: Add Your App to Codemagic
+1. In Codemagic, go to your app: **TTleGoApp**
+2. Click on **Settings** (gear icon)
+3. Go to **Environment variables** tab
+4. Add the following variables (they should be automatically available if you added the API key in Step 2):
+   - `APP_STORE_ISSUER_ID` - Your Issuer ID
+   - `APP_STORE_KEY_ID` - Your Key ID
+   - `APP_STORE_PRIVATE_KEY` - Your Private Key content
 
-1. After signing in, click "Add application"
-2. Select **GitHub** as your Git provider
-3. Find and select your repository: **AbdulQauyum/TTleGoApp**
-4. Click "Add application"
+   **OR** if using environment groups:
+   - Go to **Environment groups**
+   - Create or edit the `app_store_credentials` group
+   - Add the three variables above
 
-## Step 3: Configure iOS Code Signing
+## Step 4: Verify Configuration
 
-### Option A: Automatic Code Signing (Recommended for beginners)
+Your `codemagic.yaml` file is already configured to use these credentials. The workflow references:
+- Environment group: `app_store_credentials`
+- Variables: `$APP_STORE_ISSUER_ID`, `$APP_STORE_KEY_ID`, `$APP_STORE_PRIVATE_KEY`
 
-1. In Codemagic, go to your app settings
-2. Navigate to **Code signing** section
-3. Click **Add credentials**
-4. Select **Automatic code signing**
-5. Enter your Apple ID credentials
-6. Codemagic will automatically manage certificates and provisioning profiles
+## Step 5: Test the Build
 
-### Option B: Manual Code Signing (For production)
-
-1. You'll need:
-   - Distribution Certificate (.p12 file)
-   - Provisioning Profile (.mobileprovision file)
-   - App Store Connect API Key (for automatic distribution)
-
-2. In Codemagic:
-   - Go to **Settings** > **Codemagic API** > **App Store Connect API keys**
-   - Create a new API key
-   - Download the key file (.p8)
-   - Note the Key ID and Issuer ID
-
-3. Add these as environment variables in Codemagic:
-   - `APP_STORE_ISSUER_ID`
-   - `APP_STORE_KEY_ID`
-   - `APP_STORE_PRIVATE_KEY` (the .p8 file content)
-
-## Step 4: Configure Build Settings
-
-The `codemagic.yaml` file has been created in your repository. You need to:
-
-1. **Update Bundle Identifier**:
-   - Open `codemagic.yaml`
-   - Find `APP_ID` and `BUNDLE_ID`
-   - Update `com.ttelgo` to your actual bundle identifier (check in Xcode)
-
-2. **Update Email**:
-   - Find the `email` section in `publishing`
-   - Replace `your-email@example.com` with your actual email
-
-3. **Update ExportOptions.plist** (if using manual signing):
-   - Open `ios/ExportOptions.plist`
-   - Replace `YOUR_TEAM_ID` with your Apple Developer Team ID
-   - Replace `YOUR_PROVISIONING_PROFILE_NAME` with your profile name
-
-## Step 5: Push Configuration to GitHub
-
-```bash
-git add codemagic.yaml ios/ExportOptions.plist CODEMAGIC_SETUP.md
-git commit -m "Add Codemagic CI/CD configuration for iOS builds"
-git push origin main
-```
-
-## Step 6: Start Your First Build
-
-1. Go to your app in Codemagic dashboard
-2. Click **Start new build**
-3. Select the workflow: **iOS Workflow**
-4. Select branch: **main** (or your default branch)
-5. Click **Start new build**
-
-## Step 7: Download Your IPA
-
-Once the build completes:
-
-1. Go to the build details page
-2. Scroll to **Artifacts** section
-3. Download the `.ipa` file
+1. Commit and push your changes to GitHub
+2. In Codemagic, trigger a new build
+3. The build should now have access to your App Store Connect API key
 
 ## Troubleshooting
 
-### Common Issues:
+### If you get "Invalid API Key" error:
+- Double-check that you copied the entire private key including the header and footer
+- Ensure there are no extra spaces or line breaks
+- Verify the Issuer ID and Key ID are correct
 
-1. **Code Signing Errors**:
-   - Ensure your Apple Developer account is active
-   - Check that your bundle identifier matches in Xcode and Codemagic
-   - Verify certificates are valid
+### If you get "Access Denied" error:
+- Make sure the API key has the correct role (App Manager or Admin)
+- Check that the key is not expired or revoked
 
-2. **Build Failures**:
-   - Check build logs in Codemagic
-   - Ensure all dependencies are in `package.json`
-   - Verify CocoaPods are properly configured
+### If variables are not found:
+- Ensure the environment group name matches: `app_store_credentials`
+- Check that variables are added to the correct app/environment group
+- Verify variable names match exactly: `APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`, `APP_STORE_PRIVATE_KEY`
 
-3. **Missing Dependencies**:
-   - Make sure `node_modules` are not committed (they're in `.gitignore`)
-   - Codemagic will run `npm install` automatically
+## Notes
 
-## Additional Resources
-
-- [Codemagic React Native Documentation](https://docs.codemagic.io/getting-started/react-native/)
-- [iOS Code Signing Guide](https://docs.codemagic.io/code-signing/ios-code-signing/)
-- [Codemagic YAML Reference](https://docs.codemagic.io/yaml/yaml-getting-started/)
-
-## Next Steps
-
-After your first successful build:
-
-1. **Set up automatic builds**: Configure builds to trigger on every push to main
-2. **TestFlight Distribution**: Uncomment the `app_store_connect` section in `codemagic.yaml` to automatically upload to TestFlight
-3. **Add more workflows**: Create separate workflows for different build types (development, staging, production)
-
-## Support
-
-If you encounter issues:
-- Check Codemagic documentation: https://docs.codemagic.io/
-- Contact Codemagic support through their dashboard
-- Review build logs for specific error messages
-
-
-
-
-
-
+- The API key is used for code signing and App Store distribution
+- Keep your `.p8` file secure - never commit it to Git
+- You can create multiple API keys for different purposes
+- API keys don't expire, but can be revoked if needed

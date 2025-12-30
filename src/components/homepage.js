@@ -1,9 +1,27 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, Image, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Linking, ActivityIndicator, TextInput } from 'react-native';
+import { View, Text, Image, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Linking, ActivityIndicator, TextInput, Platform, PermissionsAndroid, Alert } from 'react-native';
 import HeaderScreen from './Header';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { scaleSize, scaleFont, widthPercentage, heightPercentage } from '../utils/dimensions';
 import { fetchCountries, fetchRegionalPackages } from '../services/api';
+import { useLanguage } from '../contexts/LanguageContext';
+import { translate } from '../utils/translations';
+
+// Safely import Voice module
+let Voice = null;
+let isVoiceAvailable = false;
+try {
+  const VoiceModule = require('@react-native-voice/voice');
+  // Handle both default export and named export
+  Voice = VoiceModule.default || VoiceModule;
+  isVoiceAvailable = Voice && typeof Voice.start === 'function';
+  if (isVoiceAvailable) {
+    console.log('Voice module loaded successfully');
+  }
+} catch (error) {
+  console.warn('Voice module not available:', error);
+  isVoiceAvailable = false;
+}
 
 // Import local slider images
 const slider1Image = require('../assets/slider1.jpeg');
@@ -14,6 +32,8 @@ const slider4Image = require('../assets/slider4.jpeg');
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 function HomeScreen({navigation}) {
+  const { language } = useLanguage();
+  const t = (key) => translate(language, key);
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
   const [activeTab, setActiveTab] = useState('Local'); // 'Local', 'Regional', 'Global'
   const adScrollViewRef = useRef(null);
@@ -23,6 +43,8 @@ function HomeScreen({navigation}) {
   const [regionalPackagesFromAPI, setRegionalPackagesFromAPI] = useState([]);
   const [loadingRegional, setLoadingRegional] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [isListening, setIsListening] = useState(false);
 
   const loadCountries = useCallback(async () => {
     try {
@@ -46,7 +68,7 @@ function HomeScreen({navigation}) {
       // Show error state if API fails
       console.error('Error loading countries from API:', err.message);
       setCountries([]);
-      setError('Failed to load countries. Please try again.');
+      setError(t('home.failedToLoad'));
     } finally {
       setLoading(false);
     }
@@ -82,6 +104,104 @@ function HomeScreen({navigation}) {
     loadCountries();
     loadRegionalPackages();
   }, [loadCountries, loadRegionalPackages]);
+
+  // Setup Voice recognition handlers
+  useEffect(() => {
+    if (!isVoiceAvailable || !Voice) {
+      return;
+    }
+
+    try {
+      Voice.onSpeechStart = () => {
+        setIsListening(true);
+        console.log('Speech recognition started');
+      };
+
+      Voice.onSpeechEnd = () => {
+        setIsListening(false);
+        console.log('Speech recognition ended');
+      };
+
+      Voice.onSpeechResults = (e) => {
+        console.log('Speech results event:', e);
+        // Handle different possible event structures
+        const results = e.value || e.results || [];
+        if (Array.isArray(results) && results.length > 0) {
+          const recognizedText = results[0];
+          if (recognizedText && typeof recognizedText === 'string') {
+            setSearchQuery(recognizedText);
+            setIsRecording(false);
+            setIsListening(false);
+            console.log('Speech recognized:', recognizedText);
+            // Stop listening after getting results
+            Voice.stop().catch(err => {
+              console.warn('Error stopping voice after results:', err);
+            });
+          }
+        }
+      };
+
+      Voice.onSpeechError = (e) => {
+        console.error('Speech recognition error:', e);
+        const errorCode = e.error?.code || e.code;
+        const errorMessage = e.error?.message || e.message || 'Unknown error';
+        
+        setIsRecording(false);
+        setIsListening(false);
+        
+        // Error codes: 7 = user cancelled, 9 = no match found
+        // Don't show alert for user cancellations or no match
+        if (errorCode !== '7' && errorCode !== '9' && errorCode !== 7 && errorCode !== 9) {
+          // Check if Google Speech Recognition service is available (Android)
+          if (errorCode === '6' || errorCode === 6 || errorMessage.includes('service')) {
+            Alert.alert(
+              t('home.error') || 'Error',
+              'Speech recognition service is not available. Please install Google app or check your internet connection.'
+            );
+          } else {
+            Alert.alert(
+              t('home.error') || 'Error',
+              t('home.voiceSearchError') || `Speech recognition failed: ${errorMessage}. Please try again.`
+            );
+          }
+        } else if (errorCode === '9' || errorCode === 9) {
+          // No match found - silently handle
+          console.log('No speech match found');
+        }
+      };
+
+      Voice.onSpeechPartialResults = (e) => {
+        console.log('Speech partial results:', e);
+        // Handle partial results for real-time feedback (optional)
+        const results = e.value || e.results || [];
+        if (Array.isArray(results) && results.length > 0) {
+          const partialText = results[0];
+          if (partialText && typeof partialText === 'string') {
+            // Optionally update search query with partial results
+            // setSearchQuery(partialText);
+          }
+        }
+      };
+    } catch (error) {
+      console.error('Error setting up Voice handlers:', error);
+      isVoiceAvailable = false;
+    }
+
+    return () => {
+      // Cleanup
+      if (isVoiceAvailable && Voice) {
+        try {
+          Voice.destroy().then(() => {
+            Voice.removeAllListeners();
+          }).catch((err) => {
+            console.warn('Error cleaning up Voice:', err);
+          });
+        } catch (error) {
+          console.warn('Error in Voice cleanup:', error);
+        }
+      }
+    };
+  }, []);
 
   // Safety check for navigation (after all hooks)
   if (!navigation) {
@@ -321,6 +441,130 @@ function HomeScreen({navigation}) {
     });
   };
 
+  // Request microphone permissions
+  const requestMicrophonePermission = async () => {
+    if (Platform.OS === 'android') {
+      try {
+        const grants = await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+        ]);
+
+        if (grants['android.permission.RECORD_AUDIO'] === PermissionsAndroid.RESULTS.GRANTED) {
+          return true;
+        } else {
+          Alert.alert(
+            t('home.micPermissionDenied') || 'Permission Denied',
+            t('home.micPermissionMessage') || 'Microphone permission is required for voice search.'
+          );
+          return false;
+        }
+      } catch (err) {
+        console.warn('Permission request error:', err);
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Handle microphone press for voice search
+  const handleMicPress = async () => {
+    // Check if Voice is available
+    if (!isVoiceAvailable || !Voice) {
+      Alert.alert(
+        t('home.voiceSearchUnavailable') || 'Voice Search Unavailable',
+        t('home.voiceSearchNotSupported') || 'Voice search is not available on this device. Please rebuild the app after installing the voice module.'
+      );
+      return;
+    }
+
+    if (isRecording) {
+      // Stop recording
+      try {
+        if (Voice && typeof Voice.stop === 'function') {
+          await Voice.stop();
+        }
+        setIsRecording(false);
+        setIsListening(false);
+      } catch (error) {
+        console.error('Error stopping voice recognition:', error);
+        setIsRecording(false);
+        setIsListening(false);
+      }
+      return;
+    }
+
+    // Request permission first
+    const hasPermission = await requestMicrophonePermission();
+    if (!hasPermission) {
+      return;
+    }
+
+    // Start voice recognition
+    try {
+      setIsRecording(true);
+      
+      // Check if Voice methods are available
+      if (!Voice || typeof Voice.start !== 'function') {
+        throw new Error('Voice.start is not available');
+      }
+      
+      // Check if Voice is available (Android requires Google Speech Recognition)
+      if (Voice.isAvailable && typeof Voice.isAvailable === 'function') {
+        try {
+          const isAvailable = await Voice.isAvailable();
+          if (!isAvailable) {
+            throw new Error('Speech recognition service is not available on this device');
+          }
+        } catch (availError) {
+          console.warn('Could not check voice availability:', availError);
+        }
+      }
+      
+      // Get available languages or use default
+      if (Voice.getSupportedLanguages && typeof Voice.getSupportedLanguages === 'function') {
+        try {
+          const availableLanguages = await Voice.getSupportedLanguages();
+          console.log('Available languages:', availableLanguages);
+        } catch (langError) {
+          console.warn('Could not get supported languages:', langError);
+        }
+      }
+      
+      // Cancel any previous recognition
+      try {
+        await Voice.cancel();
+      } catch (cancelError) {
+        // Ignore cancel errors
+        console.log('No previous recognition to cancel');
+      }
+      
+      // Start voice recognition with default language (en-US)
+      // You can change this based on user's language preference
+      await Voice.start('en-US');
+      console.log('Voice recognition started successfully');
+      
+    } catch (error) {
+      console.error('Error starting voice search:', error);
+      setIsRecording(false);
+      setIsListening(false);
+      
+      // Show user-friendly error message
+      const errorMessage = error.message || 'Unknown error occurred';
+      
+      if (errorMessage.includes('not available') || errorMessage.includes('service')) {
+        Alert.alert(
+          t('home.error') || 'Error',
+          'Speech recognition service is not available. Please install Google app (Android) or check your device settings.'
+        );
+      } else {
+        Alert.alert(
+          t('home.error') || 'Error',
+          t('home.voiceSearchError') || `Failed to start voice search: ${errorMessage}. Please try again.`
+        );
+      }
+    }
+  };
+
   const renderPackageCard = (pkg) => {
     const displayedCountries = pkg.countries.slice(0, 5);
     const remainingCount = pkg.countries.length - displayedCountries.length;
@@ -402,7 +646,11 @@ function HomeScreen({navigation}) {
           <TouchableOpacity 
             style={styles.notificationButton}
             onPress={() => {
-              // Notification button functionality can be added here
+              try {
+                navigation?.navigate('NotificationScreen');
+              } catch (error) {
+                console.error('Navigation error:', error);
+              }
             }}
           >
             <Ionicons name="notifications-outline" size={24} color="#fff" />
@@ -469,7 +717,7 @@ function HomeScreen({navigation}) {
 
       {/* Popular Countries */}
       <View style={styles.sectionTitleContainer}>
-        <Text style={styles.sectionTitle}>Data Plans</Text>
+        <Text style={styles.sectionTitle}>{t('home.dataPlans')}</Text>
       </View>
 
       {/* Search Box */}
@@ -477,11 +725,25 @@ function HomeScreen({navigation}) {
         <Ionicons name="search-outline" size={20} color="#999" style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Explore multiple countries..."
+          placeholder={t('home.searchPlaceholder')}
           placeholderTextColor="#999"
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
+        <TouchableOpacity
+          onPress={handleMicPress}
+          style={styles.micButton}
+          activeOpacity={0.7}
+        >
+          <Ionicons 
+            name={isRecording ? "mic" : "mic-outline"} 
+            size={20} 
+            color={isRecording ? "#CC0000" : "#999"} 
+          />
+          {isListening && (
+            <View style={styles.recordingIndicator} />
+          )}
+        </TouchableOpacity>
       </View>
      
       <View style={styles.tabRow}>
@@ -489,7 +751,7 @@ function HomeScreen({navigation}) {
           style={[activeTab === 'Local' ? styles.tabActive : styles.tab, styles.tabSpacing]}
           onPress={() => setActiveTab('Local')}
         >
-          <Text style={activeTab === 'Local' ? styles.tabTextActive : styles.tabText}>Local eSIMs</Text>
+          <Text style={activeTab === 'Local' ? styles.tabTextActive : styles.tabText}>{t('home.localESims')}</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[activeTab === 'Regional' ? styles.tabActive : styles.tab, styles.tabSpacing]}
@@ -501,13 +763,13 @@ function HomeScreen({navigation}) {
             }
           }}
         >
-          <Text style={activeTab === 'Regional' ? styles.tabTextActive : styles.tabText}>Regional eSIMs</Text>
+          <Text style={activeTab === 'Regional' ? styles.tabTextActive : styles.tabText}>{t('home.regionalESims')}</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={activeTab === 'Global' ? styles.tabActive : styles.tab}
           onPress={() => setActiveTab('Global')}
         >
-          <Text style={activeTab === 'Global' ? styles.tabTextActive : styles.tabText}>Global eSIMs</Text>
+          <Text style={activeTab === 'Global' ? styles.tabTextActive : styles.tabText}>{t('home.globalESims')}</Text>
         </TouchableOpacity>
       </View>
       {/* Content based on active tab */}
@@ -623,7 +885,7 @@ function HomeScreen({navigation}) {
 
       {activeTab === 'Global' && (
         <View style={styles.emptyStateContainer}>
-          <Text style={styles.emptyStateText}>Global eSIMs coming soon</Text>
+          <Text style={styles.emptyStateText}>{t('home.globalComingSoon')}</Text>
         </View>
       )}
       
@@ -669,7 +931,7 @@ const styles = StyleSheet.create({
     width: '100%',
     zIndex: 2,
     position: 'absolute',
-    top: 80,
+    top: 40,
   },
   notificationButton: {
     width: 40,
@@ -704,6 +966,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000',
     padding: 0,
+    marginRight: 8,
+  },
+  micButton: {
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    minWidth: 32,
+    minHeight: 32,
+  },
+  recordingIndicator: {
+    position: 'absolute',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#CC0000',
+    top: 0,
+    right: 0,
+    borderWidth: 2,
+    borderColor: '#fff',
+    shadowColor: '#CC0000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    elevation: 4,
   },
   bannerContainer: {
     marginTop: 0,
@@ -769,7 +1056,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     padding: 0,
     borderRadius: 0,
-    marginTop: -120,
+    marginTop: -160,
     marginHorizontal: 0,
     marginBottom: 0,
     zIndex: 10,

@@ -1,12 +1,100 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Alert, ActivityIndicator, Linking } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import HeaderScreen from './Header';
+import { sendInviteEmail } from '../services/api';
 
 
 export default function InviteFriendsScreen({navigation}) {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleAddFriend = async () => {
+    // Validate email
+    if (!email.trim()) {
+      Alert.alert('Error', 'Please enter an email address');
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Try to send via API first
+      try {
+        await sendInviteEmail({
+          email: email.trim(),
+          name: name.trim() || undefined,
+        });
+
+        Alert.alert(
+          'Success',
+          `Invite email has been sent to ${email.trim()}`,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Clear form after successful send
+                setEmail('');
+                setName('');
+              },
+            },
+          ]
+        );
+      } catch (apiError) {
+        // Fallback: Open email client with pre-filled content
+        const subject = encodeURIComponent('eSIM Invitation');
+        const body = encodeURIComponent(
+          `Hello${name.trim() ? ` ${name.trim()}` : ''},\n\n` +
+          `I'm inviting you to try our eSIM service. You will receive detailed installation instructions via email.\n\n` +
+          `Please note: Once an eSIM is installed on a device, it cannot be transferred or reinstalled on another device.\n\n` +
+          `Best regards`
+        );
+        const mailtoUrl = `mailto:${email.trim()}?subject=${subject}&body=${body}`;
+
+        const canOpen = await Linking.canOpenURL(mailtoUrl);
+        if (canOpen) {
+          await Linking.openURL(mailtoUrl);
+          Alert.alert(
+            'Email Client Opened',
+            'Please send the email from your email client.',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  // Clear form
+                  setEmail('');
+                  setName('');
+                },
+              },
+            ]
+          );
+        } else {
+          Alert.alert(
+            'Error',
+            'Unable to open email client. Please check your email configuration.',
+            [{ text: 'OK' }]
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Error sending invite:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to send invite email. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -64,8 +152,19 @@ export default function InviteFriendsScreen({navigation}) {
         </Text>
 
         {/* Add Button */}
-        <TouchableOpacity style={styles.addButton}>
-          <Text style={styles.addButtonText}>Add Friend</Text>
+        <TouchableOpacity 
+          style={[styles.addButton, loading && styles.addButtonDisabled]}
+          onPress={handleAddFriend}
+          disabled={loading}
+        >
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={styles.addButtonText}>Sending...</Text>
+            </View>
+          ) : (
+            <Text style={styles.addButtonText}>Add Friend</Text>
+          )}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -109,6 +208,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     flex: 1,
     textAlign: 'center',
+    paddingVertical:50
+    
   },
   content: {
     paddingHorizontal: 16,
@@ -160,5 +261,14 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  addButtonDisabled: {
+    opacity: 0.6,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
 });

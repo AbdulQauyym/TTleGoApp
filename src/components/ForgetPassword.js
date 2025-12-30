@@ -13,6 +13,8 @@ import {
   Dimensions,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useLanguage } from '../contexts/LanguageContext';
+import { translate } from '../utils/translations';
 
 const BASE_WIDTH = 375;
 
@@ -23,6 +25,8 @@ const scaleSize = (size) => {
 };
 
 const ForgetPasswordScreen = ({ navigation }) => {
+  const { language } = useLanguage();
+  const t = (key) => translate(language, key);
   const [email, setEmail] = useState("");
   const [dimensions, setDimensions] = useState({ width: 375, height: 667 });
 
@@ -55,23 +59,23 @@ const ForgetPasswordScreen = ({ navigation }) => {
 
   const handleResetPassword = () => {
     if (email.trim() === "") {
-      Alert.alert("Error", "Please enter your email address");
+      Alert.alert(t('forgotPassword.error'), t('forgotPassword.enterEmail'));
       return;
     }
     
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      Alert.alert("Error", "Please enter a valid email address");
+      Alert.alert(t('forgotPassword.error'), t('forgotPassword.validEmail'));
       return;
     }
 
     Alert.alert(
-      "Reset Link Sent",
-      "We've sent a password reset link to your email address. Please check your inbox.",
+      t('forgotPassword.resetLinkSent'),
+      t('forgotPassword.resetLinkMessage'),
       [
         {
-          text: "OK",
+          text: t('forgotPassword.ok'),
           onPress: () => navigation.goBack(),
         },
       ]
@@ -97,7 +101,7 @@ const ForgetPasswordScreen = ({ navigation }) => {
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <View style={styles.titleContainer}>
-            <Text style={styles.title}>Forgot Password</Text>
+            <Text style={styles.title}>{t('forgotPassword.title')}</Text>
             <View style={styles.underline} />
           </View>
         </View>
@@ -105,14 +109,14 @@ const ForgetPasswordScreen = ({ navigation }) => {
         <View style={styles.body}>
           
           <Text style={styles.description}>
-            Enter your email address and we'll send you a link to reset your password.
+            {t('forgotPassword.description')}
           </Text>
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>{t('forgotPassword.email')}</Text>
             <TextInput
               style={styles.input}
-              placeholder="demo@email.com"
+              placeholder={t('forgotPassword.emailPlaceholder')}
               placeholderTextColor="#999"
               value={email}
               onChangeText={setEmail}
@@ -123,13 +127,13 @@ const ForgetPasswordScreen = ({ navigation }) => {
           </View>
 
           <TouchableOpacity style={styles.resetBtn} onPress={handleResetPassword}>
-            <Text style={styles.resetText}>Send Reset Link</Text>
+            <Text style={styles.resetText}>{t('forgotPassword.sendResetLink')}</Text>
           </TouchableOpacity>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Remember your password? </Text>
+            <Text style={styles.footerText}>{t('forgotPassword.rememberPassword')} </Text>
             <TouchableOpacity onPress={() => navigation.navigate('LoginScreen')}>
-              <Text style={styles.loginLink}>Login</Text>
+              <Text style={styles.loginLink}>{t('forgotPassword.login')}</Text>
             </TouchableOpacity>
           </View>
         </View>

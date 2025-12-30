@@ -3,9 +3,13 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions, Modal } from 'react-native';
 import HeaderScreen from './Header';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useLanguage } from '../contexts/LanguageContext';
+import { translate } from '../utils/translations';
 
 
 export default function ProfileScreen({navigation}) {
+  const { language } = useLanguage();
+  const t = (key) => translate(language, key);
   const [dimensions, setDimensions] = useState({ width: 375, height: 667 });
   const [userDetailsModalVisible, setUserDetailsModalVisible] = useState(false);
 
@@ -34,10 +38,11 @@ export default function ProfileScreen({navigation}) {
   const SCREEN_HEIGHT = dimensions?.height || 667;
   const HEADER_HEIGHT = SCREEN_HEIGHT * 0.38; // 38% of screen height
   const menuItems = [
-    { label: 'Friends', icon: 'people-outline', screen:'InviteFriendsScreen' },
-    { label: 'Help Center', icon: 'help-circle-outline', screen:'HelpCenterScreen'},
-    { label: 'Settings', icon: 'settings-outline', screen:'ManageScreen' },
-    { label: 'About Us', icon: 'information-circle-outline', screen:'AboutScreen' },
+    { label: t('profile.friends'), icon: 'people-outline', screen:'InviteFriendsScreen', key: 'friends' },
+    { label: t('profile.helpCenter'), icon: 'help-circle-outline', screen:'HelpCenterScreen', key: 'helpCenter' },
+    { label: t('profile.settings'), icon: 'settings-outline', screen:'ManageScreen', key: 'settings' },
+    { label: t('profile.aboutUs'), icon: 'information-circle-outline', screen:'AboutScreen', key: 'aboutUs' },
+    { label: t('profile.language'), icon: 'language-outline', screen:'LanguageSelectionScreen', key: 'language' },
   ];
 
 
@@ -58,7 +63,7 @@ const profile = require("../assets/profile.png");
       style={styles.textContainer}
       onPress={() => setUserDetailsModalVisible(true)}
     >
-    <Text style={styles.headerTitle}>Guest</Text>
+    <Text style={styles.headerTitle}>{t('profile.guest')}</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.loginButton}
@@ -73,7 +78,7 @@ const profile = require("../assets/profile.png");
               }
             }}
           >
-            <Text style={styles.loginButtonText}>Log In</Text>
+            <Text style={styles.loginButtonText}>{t('profile.login')}</Text>
           </TouchableOpacity>
   </View>
         <View style={styles.bannerContainer}>
@@ -84,7 +89,7 @@ const profile = require("../assets/profile.png");
   
       {/* Promo Banner */}
       <View style={styles.promoBanner}>
-        <Text style={styles.promoText}>Invite freinds, get USD 5 off</Text>
+        <Text style={styles.promoText}>{t('profile.inviteFriends')}</Text>
         <Image
           source={sim}
           style={styles.promoIcon}
@@ -102,6 +107,14 @@ const profile = require("../assets/profile.png");
                // Navigate to Manage tab
                if (parent) {
                  parent.navigate('Manage', { screen: 'ManageMain' });
+               }
+             } else if (item.screen === 'LanguageSelectionScreen') {
+               // Navigate to language selection
+               const rootNavigator = parent ? parent.getParent() : null;
+               if (rootNavigator) {
+                 rootNavigator.navigate('LanguageSelectionScreen');
+               } else {
+                 navigation.navigate('LanguageSelectionScreen');
                }
              } else {
                // Navigate within ProfileStack
@@ -133,7 +146,7 @@ const profile = require("../assets/profile.png");
         }}
          >
         <Ionicons name="log-out-outline" size={20} color="#fff" style={styles.logoutIcon} />
-        <Text style={styles.logoutText}>Log Out</Text>
+        <Text style={styles.logoutText}>{t('profile.logout')}</Text>
       </TouchableOpacity>
 
       {/* User Details Modal */}
@@ -147,7 +160,7 @@ const profile = require("../assets/profile.png");
           <View style={styles.modalContent}>
             {/* Modal Header */}
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>User Details</Text>
+              <Text style={styles.modalTitle}>{t('profile.userDetails')}</Text>
               <TouchableOpacity onPress={() => setUserDetailsModalVisible(false)}>
                 <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
@@ -161,42 +174,42 @@ const profile = require("../assets/profile.png");
                 </View>
                 
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Name:</Text>
-                  <Text style={styles.infoValue}>Guest User</Text>
+                  <Text style={styles.infoLabel}>{t('profile.name')}:</Text>
+                  <Text style={styles.infoValue}>{t('profile.guestUser')}</Text>
                 </View>
 
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Email:</Text>
+                  <Text style={styles.infoLabel}>{t('profile.email')}:</Text>
                   <Text style={styles.infoValue}>guest@example.com</Text>
                 </View>
 
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Phone:</Text>
+                  <Text style={styles.infoLabel}>{t('profile.phone')}:</Text>
                   <Text style={styles.infoValue}>+1 (555) 000-0000</Text>
                 </View>
 
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>User ID:</Text>
+                  <Text style={styles.infoLabel}>{t('profile.userId')}:</Text>
                   <Text style={styles.infoValue}>GUEST-12345</Text>
                 </View>
 
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Account Type:</Text>
-                  <Text style={styles.infoValue}>Guest</Text>
+                  <Text style={styles.infoLabel}>{t('profile.accountType')}:</Text>
+                  <Text style={styles.infoValue}>{t('profile.guest')}</Text>
                 </View>
 
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Member Since:</Text>
+                  <Text style={styles.infoLabel}>{t('profile.memberSince')}:</Text>
                   <Text style={styles.infoValue}>--</Text>
                 </View>
 
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Total Orders:</Text>
+                  <Text style={styles.infoLabel}>{t('profile.totalOrders')}:</Text>
                   <Text style={styles.infoValue}>0</Text>
                 </View>
 
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Points Balance:</Text>
+                  <Text style={styles.infoLabel}>{t('profile.pointsBalance')}:</Text>
                   <Text style={styles.infoValue}>0 pts</Text>
                 </View>
               </View>
@@ -207,7 +220,7 @@ const profile = require("../assets/profile.png");
               style={styles.modalCloseButton}
               onPress={() => setUserDetailsModalVisible(false)}
             >
-              <Text style={styles.modalCloseButtonText}>Close</Text>
+              <Text style={styles.modalCloseButtonText}>{t('profile.close')}</Text>
             </TouchableOpacity>
           </View>
         </View>

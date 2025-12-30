@@ -13,6 +13,7 @@ import YourOrderScreen from './YourOrder';
 import RegionalESimsScreen from './RegionalESims';
 import GlobalESimsScreen from './GlobalESims';
 import LiveChatScreen from './LiveChat';
+import NotificationScreen from './NotificationScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -37,6 +38,7 @@ export default function HomeStack() {
       <Stack.Screen name="RegionalESimsScreen" component={RegionalESimsScreen} options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="GlobalESimsScreen" component={GlobalESimsScreen} options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="LiveChatScreen" component={LiveChatScreen} options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="NotificationScreen" component={NotificationScreen} options={{ animation: 'slide_from_right' }} />
     </Stack.Navigator>
   );
 }

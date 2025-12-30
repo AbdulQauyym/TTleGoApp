@@ -2,9 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getSafeWindowDimensions, scaleSize } from '../utils/dimensions';
+import { useLanguage } from '../contexts/LanguageContext';
+import { translate } from '../utils/translations';
 
 
 export default function WelcomeScreen({ navigation }) {
+  const { language } = useLanguage();
+  const t = (key) => translate(language, key);
   // Start with safe defaults, update in useEffect
   const [dimensions, setDimensions] = useState({ width: 375, height: 667 });
   const logoImg = require("../assets/LogoImage2.png");
@@ -55,9 +59,9 @@ export default function WelcomeScreen({ navigation }) {
 
       {/* Bottom Section */}
       <View style={styles.bottomContainer}>
-        <Text style={styles.title}>Welcome</Text>
+        <Text style={styles.title}>{t('welcome.title')}</Text>
         <Text style={styles.subtitle}>
-          we help you stay connected no matter where you are headed
+          {t('welcome.subtitle')}
         </Text>
 
         <TouchableOpacity 
@@ -65,7 +69,7 @@ export default function WelcomeScreen({ navigation }) {
           onPress={handleContinue}
           activeOpacity={0.8}
         >
-          <Text style={styles.buttonText}>Continue</Text>
+          <Text style={styles.buttonText}>{t('welcome.continue')}</Text>
          
           <View style={styles.circularButton}>
               <Image source={arrowImg} style={styles.arrowImage} resizeMode="contain" />

@@ -8,6 +8,9 @@ import MainTabs from './src/components/MainTabs';
 import LoginScreen from './src/components/Loginpage';
 import SignUpScreen from './src/components/Signup';
 import ForgetPasswordScreen from './src/components/ForgetPassword';
+import ESIMInstallScreen from './src/components/ESIMInstallScreen';
+import LanguageSelectionScreen from './src/components/LanguageSelectionScreen';
+import { LanguageProvider } from './src/contexts/LanguageContext';
 
 const Stack = createNativeStackNavigator();
 
@@ -56,6 +59,8 @@ function AppContent() {
           <Stack.Screen name="LoginScreen" component={LoginScreen} />
           <Stack.Screen name="SignUpScreen" component={SignUpScreen} />
           <Stack.Screen name="ForgetPasswordScreen" component={ForgetPasswordScreen} />
+          <Stack.Screen name="ESIMInstall" component={ESIMInstallScreen} />
+          <Stack.Screen name="LanguageSelectionScreen" component={LanguageSelectionScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     );
@@ -90,7 +95,9 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <AppContent />
+      <LanguageProvider>
+        <AppContent />
+      </LanguageProvider>
     </ErrorBoundary>
   );
 }

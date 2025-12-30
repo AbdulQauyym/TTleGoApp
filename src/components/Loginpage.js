@@ -16,9 +16,13 @@ import {
   Dimensions
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useLanguage } from '../contexts/LanguageContext';
+import { translate } from '../utils/translations';
 
 
 const SignInScreen = ({navigation}) => {
+  const { language } = useLanguage();
+  const t = (key) => translate(language, key);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
@@ -62,7 +66,7 @@ const handleLogin = () => {
     if (username === "Admin" && password === "1234") {
        navigation.navigate("MainTabs"); // Navigate to MainTabs after login
     } else {
-      Alert.alert("Login Failed", "Invalid username or password");
+      Alert.alert(t('login.loginFailed'), t('login.invalidCredentials'));
     }
   };
 
@@ -90,7 +94,7 @@ const handleLogin = () => {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <View style={styles.titleContainer}>
-          <Text style={styles.title}>Sign in</Text>
+          <Text style={styles.title}>{t('login.title')}</Text>
           <View style={styles.underline} />
         </View>
       </View>
@@ -101,10 +105,10 @@ const handleLogin = () => {
         {/* Body */}
         <View style={styles.body}>
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>{t('login.email')}</Text>
             <TextInput
               style={styles.input}
-              placeholder="demo@email.com"
+              placeholder={t('login.emailPlaceholder')}
               placeholderTextColor="#999"
               value={username}
               onChangeText={setUsername}
@@ -113,10 +117,10 @@ const handleLogin = () => {
           </View>
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Password</Text>
+            <Text style={styles.label}>{t('login.password')}</Text>
             <TextInput
               style={styles.input}
-              placeholder="enter your password"
+              placeholder={t('login.passwordPlaceholder')}
               placeholderTextColor="#999"
               secureTextEntry
               value={password}
@@ -134,16 +138,16 @@ const handleLogin = () => {
       <View style={[styles.outerCircle, rememberMe && styles.outerCircleSelected]}>
        {rememberMe && <View style={styles.innerCircle} />}
       </View>
-      <Text style={styles.label}>Remember Me</Text>
+      <Text style={styles.label}>{t('login.rememberMe')}</Text>
     </TouchableOpacity>
             
             <TouchableOpacity onPress={() => navigation.navigate('ForgetPasswordScreen')}>
-              <Text style={styles.forgot}>Forgot Password?</Text>
+              <Text style={styles.forgot}>{t('login.forgotPassword')}</Text>
             </TouchableOpacity>
           </View>
 
           <TouchableOpacity style={styles.loginBtn} onPress={handleLogin}>
-            <Text style={styles.loginText}>Login</Text>
+            <Text style={styles.loginText}>{t('login.loginButton')}</Text>
           </TouchableOpacity>
 
           {/* Social Login Icons */}
@@ -177,11 +181,11 @@ const handleLogin = () => {
           </View>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Don’t have an Account ? </Text>
+            <Text style={styles.footerText}>{t('login.noAccount')} </Text>
             <TouchableOpacity
              onPress={() => navigation.navigate('SignUpScreen')}
             >
-              <Text style={styles.signUp}>Sign up</Text>
+              <Text style={styles.signUp}>{t('login.signUp')}</Text>
             </TouchableOpacity>
           </View>
         </View>

@@ -83,7 +83,7 @@ const styles = StyleSheet.create({
     paddingTop: 50,
     zIndex: 3,
     position: 'absolute',
-    top: 60,
+    top: 0,
     left: 0,
     right: 0,
   },
@@ -96,6 +96,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     flex: 1,
     textAlign: 'center',
+    paddingVertical:50
   },
   headerSpacer: {
     width: 24,

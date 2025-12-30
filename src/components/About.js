@@ -81,7 +81,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 80,
+    paddingTop: 50,
     zIndex: 3,
     position: 'absolute',
     top: 0,
@@ -105,6 +105,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
     fontFamily: 'Poppins',
+    paddingVertical:50
   },
   headerSpacer: {
     width: 24,

@@ -261,6 +261,7 @@ export default function DataPlanScreen({ route, navigation }) {
                   days: selectedPlanData.duration,
                   price: selectedPlanData.newPrice,
                   oldPrice: selectedPlanData.oldPrice,
+                  bundleName: selectedPlanData.bundleName, // Pass the actual bundle ID/name from API
                 });
               }
             }}
@@ -294,7 +295,6 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 50,
     paddingBottom: 20,
@@ -305,18 +305,26 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 2,
   },
   flagContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
+    paddingTop: 50,
+    paddingBottom: 20,
+    zIndex: 1,
   },
   cartButton: {
     width: 40,
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 'auto',
+    zIndex: 2,
   },
   flagCircle: {
     width: 45,
@@ -336,12 +344,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 20,
     fontWeight: "bold",
-  },
-  cartButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   content: {
     paddingHorizontal: 20,

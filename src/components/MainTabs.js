@@ -2,6 +2,8 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { scaleSize } from '../utils/dimensions';
+import { useLanguage } from '../contexts/LanguageContext';
+import { translate } from '../utils/translations';
 
 import HomeStack from './HomeStack';
 import ManageStack from './ManageStack';
@@ -11,6 +13,8 @@ import ProfileStack from './ProfileStack';
 const Tab = createBottomTabNavigator();
 
 export default function MainTabs() {
+  const { language } = useLanguage();
+  const t = (key) => translate(language, key);
   const iconSize = scaleSize(24);
   
   return (
@@ -44,10 +48,10 @@ export default function MainTabs() {
           fontSize: scaleSize(12),
         },
       })}>
-      <Tab.Screen name="Home" component={HomeStack} />
-      <Tab.Screen name="Manage" component={ManageStack} />
-      <Tab.Screen name="Cart" component={CartStack} />
-      <Tab.Screen name="Profile" component={ProfileStack} />
+      <Tab.Screen name="Home" component={HomeStack} options={{ tabBarLabel: t('tabs.home') }} />
+      <Tab.Screen name="Manage" component={ManageStack} options={{ tabBarLabel: t('tabs.manage') }} />
+      <Tab.Screen name="Cart" component={CartStack} options={{ tabBarLabel: t('tabs.cart') }} />
+      <Tab.Screen name="Profile" component={ProfileStack} options={{ tabBarLabel: t('tabs.profile') }} />
     </Tab.Navigator>
   );
 }

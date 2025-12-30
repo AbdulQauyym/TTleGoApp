@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
   },
   headerOverlay: {
     position: 'absolute',
-    top: 80,
+    top: 50,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -220,6 +220,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     flex: 1,
     textAlign: 'center',
+    paddingVertical:50
   },
   tabContainer: {
     position: 'absolute',

@@ -70,6 +70,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     flex: 1,
     textAlign: 'center',
+    paddingVertical:50
   },
   imageRow: {
   flexDirection: 'row',

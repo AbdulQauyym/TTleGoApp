@@ -369,6 +369,7 @@ export default function DataPlan({navigation, route}) {
                 days: planDetails.validity,
                 price: planDetails.price || planData?.newPrice || '0',
                 oldPrice: planData?.oldPrice || null,
+                bundleName: bundleName, // Pass the actual bundle ID/name from API
               });
             } catch (error) {
               console.error('Navigation error:', error);

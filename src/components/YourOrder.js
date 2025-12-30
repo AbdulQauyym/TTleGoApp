@@ -1,9 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, TextInput, Dimensions, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, TextInput, Dimensions, Alert, ActivityIndicator, Linking, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import HeaderScreen from './Header';
-import { createESIMOrder, applyBundleToESIM, getOrderDetails } from '../services/api';
+import { 
+  createESIMOrder,
+  getESIMInstallDetails,
+  getESIMInstallURL,
+  getOrderDetails,
+  fetchPlanDetails 
+} from '../services/api';
 
 export default function YourOrder({ navigation, route }) {
   const [dimensions, setDimensions] = useState({ width: 375, height: 667 });
@@ -101,86 +107,241 @@ export default function YourOrder({ navigation, route }) {
     iccid: null, // eSIM ICCID if available
   };
 
-  // Handle complete purchase - activate bundle
+  // Handle complete purchase - using eSIM Go API v2.4 directly
   const handleCompletePurchase = async () => {
     setIsProcessing(true);
 
     try {
-      // Extract bundle name from order details or construct it
-      // Format: esim_{data}_{days}_{country}_{version}
-      // Example: esim_1GB_7D_GB_V2
-      let bundleName = orderDetails.bundleName;
+      // Step 1: Extract bundle information from order details
+      // Priority: Use bundleName from route params (actual bundle ID from API)
+      let bundleId = orderDetails.bundleName || orderDetails.bundleId;
       
-      if (!bundleName) {
-        // Construct bundle name from order details
-        const dataAmount = orderDetails.data.replace(' GB', '').replace(' GB', '');
-        const days = orderDetails.days.replace(' Days', '').replace(' Day', '');
+      // If no bundle ID, try to construct it (fallback)
+      if (!bundleId) {
+        // Construct bundle ID from order details
+        // Format: esim_{data}_{days}_{country}_{version}
+        // Example: esim_1GB_7D_GB_V2
+        const dataAmount = orderDetails.data.replace(' GB', '').replace(' GB', '').trim();
+        const days = orderDetails.days.replace(' Days', '').replace(' Day', '').trim();
         const countryCode = orderDetails.flag.toUpperCase();
-        bundleName = `esim_${dataAmount}GB_${days}D_${countryCode}_V2`;
+        
+        // Handle decimal data amounts (e.g., "1.5 GB" -> "1.5GB" or "1.5")
+        const dataFormatted = dataAmount.includes('.') ? dataAmount.replace('.', '') : dataAmount;
+        bundleId = `esim_${dataFormatted}GB_${days}D_${countryCode}_V2`;
+        
+        console.warn('No bundle ID provided, constructed:', bundleId);
       }
 
-      // If we have an ICCID, apply bundle directly
-      if (orderDetails.iccid) {
-        const result = await applyBundleToESIM(orderDetails.iccid, bundleName);
-        
+      // Validate bundle ID format
+      if (!bundleId || typeof bundleId !== 'string') {
+        throw new Error('Invalid bundle ID. Please select a plan and try again.');
+      }
+
+      // Step 2: Verify bundle exists (optional but helpful)
+      try {
+        console.log('Verifying bundle exists:', bundleId);
+        await fetchPlanDetails(bundleId);
+        console.log('Bundle verified successfully');
+      } catch (verifyError) {
+        console.warn('Bundle verification failed:', verifyError.message);
+        // Continue anyway - the activate endpoint will validate it
+      }
+      
+      // Step 3: Create Order using eSIM Go API v2.4
+      // POST https://api.esim-go.com/v2.4/orders
+      console.log('Creating eSIM order with eSIM Go API:');
+      console.log('Bundle ID:', bundleId);
+      console.log('Bundle ID type:', typeof bundleId);
+      console.log('Bundle ID length:', bundleId ? bundleId.length : 0);
+      
+      // Ensure bundleId is a valid string
+      if (!bundleId || typeof bundleId !== 'string' || bundleId.trim().length === 0) {
+        throw new Error('Invalid bundle ID. Bundle name is required and must be a non-empty string.');
+      }
+      
+      const orderResponse = await createESIMOrder({
+        bundleName: bundleId.trim(), // Trim whitespace
+        quantity: 1,
+        assign: true, // Assign to new eSIM
+        type: 'transaction', // Use 'validate' to test without charging
+      });
+
+      console.log('Order created successfully:', orderResponse);
+
+      // Extract order reference from response
+      // eSIM Go API returns orderReference in the response
+      let orderReference = null;
+      
+      if (typeof orderResponse === 'string') {
+        // If response is a JSON string, parse it
+        try {
+          const parsed = JSON.parse(orderResponse);
+          orderReference = parsed.orderReference || parsed.reference || parsed.data?.orderReference;
+        } catch (e) {
+          // Not JSON, try to extract from string
+          const match = orderResponse.match(/orderReference["\s:]+([^"}\s]+)/i);
+          if (match) orderReference = match[1];
+        }
+      } else if (typeof orderResponse === 'object') {
+        orderReference = orderResponse.orderReference || 
+                        orderResponse.reference || 
+                        orderResponse.data?.orderReference ||
+                        orderResponse.data?.reference;
+      }
+
+      if (!orderReference) {
+        console.error('Order response:', orderResponse);
+        throw new Error('Order created but no order reference received. Response: ' + JSON.stringify(orderResponse));
+      }
+
+      console.log('Order reference:', orderReference);
+
+      // Step 4: Get Order Details using eSIM Go API v2.4
+      // GET https://api.esim-go.com/v2.4/orders/{orderReference}
+      console.log('Fetching order details from eSIM Go API...');
+      let orderDetailsResult = null;
+      try {
+        orderDetailsResult = await getOrderDetails(orderReference);
+        console.log('Order details:', orderDetailsResult);
+      } catch (orderError) {
+        console.warn('Could not fetch order details from eSIM Go API:', orderError.message);
+        // Continue anyway - we can still get install details
+      }
+
+      // Step 5: Get eSIM Install Details using eSIM Go API v2.4
+      // GET https://api.esim-go.com/v2.4/esims/assignments?reference={orderReference}
+      console.log('Fetching eSIM install details for order reference:', orderReference);
+      
+      // Wait a moment for eSIM to be ready (sometimes takes a few seconds)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      let installDetails = null;
+      let installURL = null;
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      // Retry getting install details (might not be ready immediately)
+      while (retryCount < maxRetries && !installDetails) {
+        try {
+          installDetails = await getESIMInstallDetails(orderReference, { format: 'json' });
+          console.log('eSIM install details retrieved successfully');
+          
+          // Try to get install URL
+          try {
+            installURL = await getESIMInstallURL(orderReference);
+            console.log('Install URL retrieved:', installURL);
+          } catch (urlError) {
+            console.warn('Could not get install URL, but have install details');
+          }
+          
+          break; // Success, exit retry loop
+        } catch (installError) {
+          retryCount++;
+          console.warn(`Install details fetch attempt ${retryCount} failed:`, installError.message);
+          
+          if (retryCount < maxRetries) {
+            // Wait before retrying (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
+          }
+        }
+      }
+
+      // Step 6: Handle Installation
+      if (installDetails || installURL) {
+        // Show success with installation options
         Alert.alert(
-          'Success',
-          'Bundle has been activated successfully!',
+          'Purchase Successful!',
+          `Your eSIM order has been created and the bundle has been purchased!\n\nOrder Reference: ${orderReference}\n\nWould you like to install the eSIM now?`,
           [
             {
-              text: 'OK',
+              text: 'Install Now',
+              onPress: async () => {
+                if (installURL) {
+                  try {
+                    // Try to open install URL directly
+                    const canOpen = await Linking.canOpenURL(installURL);
+                    if (canOpen) {
+                      await Linking.openURL(installURL);
+                      Alert.alert(
+                        'Installation Started',
+                        'Follow the on-screen instructions to complete the eSIM installation.',
+                        [{ text: 'OK' }]
+                      );
+                    } else {
+                      // Navigate to installation screen
+                      navigation.navigate('ESIMInstallScreen', {
+                        reference: orderReference,
+                        orderReference: orderReference,
+                        installDetails: installDetails,
+                        installURL: installURL
+                      });
+                    }
+                  } catch (linkError) {
+                    console.error('Error opening install URL:', linkError);
+                    navigation.navigate('ESIMInstallScreen', {
+                      reference: orderReference,
+                      orderReference: orderReference,
+                      installDetails: installDetails,
+                      installURL: installURL
+                    });
+                  }
+                } else {
+                  // Navigate to installation screen
+                  navigation.navigate('ESIMInstallScreen', {
+                    reference: orderReference,
+                    orderReference: orderReference,
+                    installDetails: installDetails
+                  });
+                }
+              },
+            },
+            {
+              text: 'View Details',
               onPress: () => {
-                // Navigate back or to success screen
+                // Navigate to installation screen
+                navigation.navigate('ESIMInstallScreen', {
+                  reference: orderReference,
+                  orderReference: orderReference,
+                  installDetails: installDetails,
+                  installURL: installURL
+                });
+              },
+            },
+            {
+              text: 'Later',
+              style: 'cancel',
+              onPress: () => {
                 navigation.goBack();
               },
             },
           ]
         );
       } else {
-        // Create a new order first
-        const orderResult = await createESIMOrder({
-          bundleName: bundleName,
-          quantity: 1,
-          autoAssign: true, // Auto-assign eSIM if available
-        });
-
-        // Get order details to retrieve eSIM ICCID
-        if (orderResult.reference) {
-          const orderDetailsResult = await getOrderDetails(orderResult.reference);
-          
-          // If order has eSIMs, apply bundle to the first one
-          if (orderDetailsResult.esims && orderDetailsResult.esims.length > 0) {
-            const iccid = orderDetailsResult.esims[0].iccid;
-            const applyResult = await applyBundleToESIM(iccid, bundleName);
-            
-            Alert.alert(
-              'Success',
-              'Order created and bundle activated successfully!',
-              [
-                {
-                  text: 'OK',
-                  onPress: () => {
-                    navigation.goBack();
-                  },
-                },
-              ]
-            );
-          } else {
-            Alert.alert(
-              'Order Created',
-              'Your order has been created. The bundle will be activated once the eSIM is assigned.',
-              [
-                {
-                  text: 'OK',
-                  onPress: () => {
-                    navigation.goBack();
-                  },
-                },
-              ]
-            );
-          }
-        }
+        // Install details not available yet
+        Alert.alert(
+          'Order Created Successfully!',
+          `Your eSIM order has been created and the bundle has been purchased!\n\nOrder Reference: ${orderReference}\n\nThe eSIM installation details will be available shortly. You can check back in a few moments.`,
+          [
+            {
+              text: 'Check Installation',
+              onPress: () => {
+                // Navigate to installation screen which will retry fetching install details
+                navigation.navigate('ESIMInstallScreen', {
+                  reference: orderReference,
+                  orderReference: orderReference
+                });
+              },
+            },
+            {
+              text: 'OK',
+              onPress: () => {
+                navigation.goBack();
+              },
+            },
+          ]
+        );
       }
+
     } catch (error) {
       console.error('Error completing purchase:', error);
       Alert.alert(
