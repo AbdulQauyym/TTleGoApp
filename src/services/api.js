@@ -1,5 +1,14 @@
+// Import JSZip for extracting PNG from ZIP files
+let JSZip = null;
+try {
+  JSZip = require('jszip');
+} catch (error) {
+  console.warn('JSZip not available:', error);
+}
+
 const BASE_URL = 'https://www.ttelgo.com/api';
 const TTELGO_API = 'https://ttelgo.com/api';
+const TTELGO_API_V1 = 'https://ttelgo.com/api/v1'; // New API base URL per documentation
 // Note: Both BASE_URL and TTELGO_API point to the same API, use TTELGO_API for consistency
 const ESIM_GO_API = 'https://api.esim-go.com/v2.4';
 
@@ -22,49 +31,185 @@ const validateAPIKey = () => {
 };
 
 /**
- * Fetch countries from the local bundles API
+ * Helper function to handle API errors following TTelgo API documentation
+ * @param {Response} response - Fetch response object
+ * @returns {Promise<Object>} Parsed error data
+ */
+const handleAPIError = async (response) => {
+  const errorText = await response.text();
+  let errorData = {};
+  
+  try {
+    errorData = JSON.parse(errorText);
+  } catch (e) {
+    // If response is not JSON, use text as error message
+    // Check for credit-related errors in plain text
+    const errorTextLower = errorText.toLowerCase();
+    if (errorTextLower.includes('credit') || 
+        errorTextLower.includes('insufficient') || 
+        errorTextLower.includes('not enough') ||
+        errorTextLower.includes('balance') ||
+        errorTextLower.includes('funds')) {
+      const creditError = new Error('INSUFFICIENT_CREDIT');
+      creditError.originalMessage = errorText;
+      creditError.isCreditError = true;
+      throw creditError;
+    }
+    throw new Error(errorText || `HTTP error! status: ${response.status}`);
+  }
+  
+  // Check for success field (per documentation)
+  if (errorData.success === false) {
+    const errorMessage = errorData.message || errorData.errors?.error || `HTTP error! status: ${response.status}`;
+    
+    // Check for credit-related errors
+    const errorMessageLower = errorMessage.toLowerCase();
+    if (errorMessageLower.includes('credit') || 
+        errorMessageLower.includes('insufficient') || 
+        errorMessageLower.includes('not enough') ||
+        errorMessageLower.includes('balance') ||
+        errorMessageLower.includes('funds')) {
+      const creditError = new Error('INSUFFICIENT_CREDIT');
+      creditError.originalMessage = errorMessage;
+      creditError.isCreditError = true;
+      throw creditError;
+    }
+    
+    throw new Error(errorMessage);
+  }
+  
+  // Standard error format
+  const errorMessage = errorData.message || 
+                      errorData.error || 
+                      errorData.errorMessage || 
+                      errorData.detail ||
+                      `HTTP error! status: ${response.status}`;
+  
+  // Check for credit-related errors in standard error format
+  const errorMessageLower = errorMessage.toLowerCase();
+  if (errorMessageLower.includes('credit') || 
+      errorMessageLower.includes('insufficient') || 
+      errorMessageLower.includes('not enough') ||
+      errorMessageLower.includes('balance') ||
+      errorMessageLower.includes('funds')) {
+    const creditError = new Error('INSUFFICIENT_CREDIT');
+    creditError.originalMessage = errorMessage;
+    creditError.isCreditError = true;
+    throw creditError;
+  }
+  
+  throw new Error(errorMessage);
+};
+
+/**
+ * Helper function to parse API response following TTelgo API documentation
+ * @param {Object} data - Raw API response
+ * @returns {*} Parsed data from response.data field
+ */
+const parseAPIResponse = (data) => {
+  // Per documentation: { success: true, message: "Success", data: {...} }
+  if (data && data.success !== false && data.data !== undefined) {
+    return data.data;
+  }
+  // Fallback for direct data
+  return data;
+};
+
+/**
+ * Step 1: List Bundles (Local eSIMs)
+ * API Documentation: MOBILE_API_DOCUMENTATION.md - Section 1
+ * Endpoint: GET /api/v1/bundles?type=local
+ * 
+ * Fetch countries from the bundles API (Local bundles only)
  * Returns an array of countries in the format: [{ name: string, price: string, flag: string }, ...]
  */
 export const fetchCountries = async () => {
   try {
-    const response = await fetch(`${BASE_URL}/plans/bundles/local`, {
+    // Per user request: GET /api/v1/bundles?type=local
+    // For Local eSIMs tab - fetches all local bundles
+    const apiUrl = `${TTELGO_API_V1}/bundles?type=local`;
+    console.log('🌐 fetchCountries: Calling API URL:', apiUrl);
+    
+    // Add timeout to prevent hanging (30 seconds)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    
+    let response;
+    try {
+      response = await fetch(apiUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
-    });
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      if (fetchError.name === 'AbortError') {
+        throw new Error('Request timeout: API call took too long (30 seconds)');
+      }
+      throw fetchError;
+    }
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      console.error('❌ fetchCountries: HTTP error response status:', response.status);
+      await handleAPIError(response);
     }
 
     const data = await response.json();
+    console.log('📦 fetchCountries: API response received');
+    console.log('📦 fetchCountries: Response structure:', JSON.stringify(data, null, 2).substring(0, 500));
     
     // Transform API response to the expected format
-    if (data && Array.isArray(data.bundles)) {
+    // API returns: { success: true, message: "Success", data: { bundles: [...], meta: {...} } }
+    const responseData = parseAPIResponse(data);
+    const bundles = responseData?.bundles || data?.bundles || [];
+    
+    if (Array.isArray(bundles) && bundles.length > 0) {
       const countriesMap = new Map();
       
-      data.bundles.forEach(bundle => {
+      bundles.forEach(bundle => {
         if (bundle.countries && Array.isArray(bundle.countries) && bundle.countries.length > 0) {
-          const country = bundle.countries[0]; // Take first country from bundle
+          bundle.countries.forEach(country => {
           const countryName = country.name;
           const isoCode = (country.iso || '').toLowerCase();
           
           // Extract price from bundle if available
           const price = bundle.price 
-            ? `From $${bundle.price}` 
+              ? `From $${bundle.price.toFixed(2)}` 
             : bundle.newPrice 
-            ? `From $${bundle.newPrice}` 
+              ? `From $${bundle.newPrice.toFixed(2)}` 
             : 'Price on request';
           
           // Add country if not already in the map (avoid duplicates)
+            // Store the lowest price and count of bundles for display
           if (!countriesMap.has(countryName)) {
             countriesMap.set(countryName, {
               name: countryName,
               price: price,
-              flag: isoCode || 'us'
-            });
-          }
+                flag: isoCode || 'us',
+                minPrice: bundle.price || bundle.newPrice || Infinity,
+                bundleCount: 1 // Track number of bundles for this country
+              });
+            } else {
+              // Update if this bundle has a lower price
+              const existing = countriesMap.get(countryName);
+              const currentPrice = bundle.price || bundle.newPrice || Infinity;
+              if (currentPrice < existing.minPrice) {
+                countriesMap.set(countryName, {
+                  name: countryName,
+                  price: price,
+                  flag: isoCode || 'us',
+                  minPrice: currentPrice,
+                  bundleCount: existing.bundleCount + 1
+                });
+              } else {
+                // Update bundle count even if price is higher
+                existing.bundleCount = existing.bundleCount + 1;
+              }
+            }
+          });
         }
       });
       
@@ -72,23 +217,29 @@ export const fetchCountries = async () => {
       const countriesList = Array.from(countriesMap.values());
       countriesList.sort((a, b) => a.name.localeCompare(b.name));
       
+      console.log('✅ fetchCountries: Returning', countriesList.length, 'countries');
       return countriesList;
-    }
-    
+    } else {
+      console.warn('⚠️ fetchCountries: No bundles found in response');
     return [];
+    }
   } catch (error) {
-    console.error('Error fetching countries:', error);
-    throw error;
+    console.error('❌ fetchCountries: Error fetching countries:', error);
+    console.error('❌ fetchCountries: Error message:', error.message);
+    console.error('❌ fetchCountries: Error stack:', error.stack);
+    // Return empty array instead of throwing to prevent loading state from hanging
+    // The component will handle empty array and show appropriate message
+    return [];
   }
 };
 
 /**
- * Fetch regional packages from the regional bundles API
- * Returns an array of regional packages
+ * Fetch regional packages from the bundles API and group by region
+ * Returns an array of regional packages grouped by region
  */
 export const fetchRegionalPackages = async () => {
   try {
-    const response = await fetch(`${BASE_URL}/plans/bundles/regional`, {
+    const response = await fetch('https://ttelgo.com/api/v1/bundles', {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -101,29 +252,96 @@ export const fetchRegionalPackages = async () => {
 
     const data = await response.json();
     
-    // Transform API response to the expected format
-    if (data && Array.isArray(data.bundles)) {
-      return data.bundles.map((bundle, index) => {
-        // Extract countries from bundle
-        const countries = bundle.countries && Array.isArray(bundle.countries)
-          ? bundle.countries.map(country => ({
-              name: country.name || '',
-              flag: (country.iso || '').toLowerCase() || 'us'
-            }))
-          : [];
-        
-        // Map bundle to regional package format
-        return {
-          id: bundle.id || index + 1,
-          planName: bundle.name || bundle.planName || `Regional Plan ${index + 1}`,
-          icon: bundle.icon || '🌍',
-          price: bundle.price || bundle.newPrice || '0',
-          data: bundle.data || bundle.dataAmount || '1 GB',
-          validity: bundle.validity || bundle.duration || '7 days',
-          countries: countries,
-          countryCount: countries.length
-        };
+    // API returns: { success: true, message: "Success", data: { bundles: [...], meta: {...} } }
+    const bundles = data?.data?.bundles || data?.bundles || [];
+    
+    if (Array.isArray(bundles) && bundles.length > 0) {
+      // Region color mapping
+      const regionColors = {
+        'Africa': '#FFC107',
+        'Asia': '#1976D2',
+        'Europe': '#03A9F4',
+        'North America': '#4CAF50',
+        'South America': '#F44336',
+        'Middle East': '#8BC34A',
+        'Oceania': '#9C27B0',
+      };
+      
+      // Group bundles by region
+      const regionMap = {};
+      
+      bundles.forEach(bundle => {
+        if (bundle.countries && Array.isArray(bundle.countries)) {
+          bundle.countries.forEach(country => {
+            const region = country.region || 'Other';
+            
+            if (!regionMap[region]) {
+              regionMap[region] = {
+                id: region,
+                planName: region,
+                icon: '🌍',
+                iconColor: regionColors[region] || '#CC0000',
+                price: null,
+                data: null,
+                validity: null,
+                countries: [],
+              };
+            }
+            
+            // Add country if not already in list
+            const countryExists = regionMap[region].countries.some(
+              c => c.name === country.name
+            );
+            
+            if (!countryExists) {
+              regionMap[region].countries.push({
+                name: country.name,
+                flag: (country.iso || '').toLowerCase() || 'us',
+                iso: country.iso,
+              });
+            }
+            
+            // Set price (use first bundle's price as reference, prefer lower price)
+            if (bundle.price) {
+              const bundlePrice = typeof bundle.price === 'number' ? bundle.price : parseFloat(bundle.price);
+              if (!regionMap[region].price || bundlePrice < parseFloat(regionMap[region].price)) {
+                regionMap[region].price = bundlePrice.toFixed(2);
+              }
+            }
+            
+            // Set data and validity from first bundle
+            if (!regionMap[region].data) {
+              if (bundle.unlimited || bundle.dataAmount === -1) {
+                regionMap[region].data = 'Unlimited';
+              } else if (bundle.dataAmount) {
+                const dataInGB = bundle.dataAmount / 1000;
+                regionMap[region].data = dataInGB % 1 === 0 
+                  ? `${dataInGB} GB` 
+                  : `${dataInGB.toFixed(1)} GB`;
+              } else {
+                regionMap[region].data = '1 GB';
+              }
+            }
+            
+            if (!regionMap[region].validity && bundle.duration) {
+              regionMap[region].validity = `${bundle.duration} ${bundle.duration === 1 ? 'Day' : 'Days'}`;
+            }
+          });
+        }
       });
+      
+      // Convert map to array
+      const packages = Object.values(regionMap);
+      
+      // Sort countries within each package
+      packages.forEach(pkg => {
+        pkg.countries.sort((a, b) => a.name.localeCompare(b.name));
+      });
+      
+      // Sort packages by region name
+      packages.sort((a, b) => a.planName.localeCompare(b.planName));
+      
+      return packages;
     }
     
     return [];
@@ -138,12 +356,21 @@ export const fetchRegionalPackages = async () => {
  * @param {string} countryFlag - ISO country code (e.g., 'us', 'gb')
  * @returns {Promise<Array>} Array of data plans
  */
+/**
+ * Fetch country plans using TTelgo API v1
+ * @param {string} countryFlag - Country ISO code (e.g., 'gb', 'us')
+ * @returns {Promise<Array>} Array of plan objects
+ */
 export const fetchCountryPlans = async (countryFlag) => {
   try {
     // Convert country flag to uppercase for API (e.g., 'gb' -> 'GB')
     const countryIso = countryFlag.toUpperCase();
     
-    const response = await fetch(`https://ttelgo.com/api/plans/bundles/country?countryIso=${countryIso}`, {
+    // Per documentation: GET /api/v1/bundles?countryIso=GB
+    const apiUrl = `${TTELGO_API_V1}/bundles?countryIso=${countryIso}`;
+    console.log('🌐 fetchCountryPlans: Calling API URL:', apiUrl);
+    
+    const response = await fetch(apiUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -151,14 +378,20 @@ export const fetchCountryPlans = async (countryFlag) => {
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      console.error('❌ fetchCountryPlans: HTTP error response status:', response.status);
+      await handleAPIError(response);
     }
 
     const data = await response.json();
+    console.log('📦 fetchCountryPlans: API response received');
+    
+    // Parse API response (per documentation: { success: true, data: { bundles: [...] } })
+    const responseData = parseAPIResponse(data);
+    const bundles = responseData?.bundles || data?.bundles || [];
     
     // Transform API response to the expected format
-    if (data && Array.isArray(data.bundles)) {
-      return data.bundles.map((bundle, index) => {
+    if (Array.isArray(bundles) && bundles.length > 0) {
+      return bundles.map((bundle, index) => {
         // Convert dataAmount from MB to GB format
         let dataText;
         if (bundle.unlimited || bundle.dataAmount === -1) {
@@ -197,7 +430,7 @@ export const fetchCountryPlans = async (countryFlag) => {
     
     return [];
   } catch (error) {
-    console.error('Error fetching country plans:', error);
+    console.error('❌ fetchCountryPlans: Error fetching country plans:', error);
     throw error;
   }
 };
@@ -206,9 +439,26 @@ export const fetchCountryPlans = async (countryFlag) => {
  * Fetch all bundles from the main bundles API
  * @returns {Promise<Array>} Array of bundle objects with names
  */
-export const fetchAllBundles = async () => {
+/**
+ * Fetch all bundles using TTelgo API v1
+ * @param {Object} options - Optional query parameters (page, size, sort, type, search)
+ * @returns {Promise<Array>} Array of bundle objects
+ */
+export const fetchAllBundles = async (options = {}) => {
   try {
-    const response = await fetch(`${TTELGO_API}/plans/bundles`, {
+    // Build query parameters
+    const queryParams = new URLSearchParams();
+    if (options.page !== undefined) queryParams.append('page', options.page);
+    if (options.size !== undefined) queryParams.append('size', options.size);
+    if (options.sort) queryParams.append('sort', options.sort);
+    if (options.type) queryParams.append('type', options.type);
+    if (options.search) queryParams.append('search', options.search);
+    
+    const queryString = queryParams.toString();
+    const apiUrl = `${TTELGO_API_V1}/bundles${queryString ? `?${queryString}` : ''}`;
+    console.log('🌐 fetchAllBundles: Calling API URL:', apiUrl);
+    
+    const response = await fetch(apiUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -216,14 +466,20 @@ export const fetchAllBundles = async () => {
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      console.error('❌ fetchAllBundles: HTTP error response status:', response.status);
+      await handleAPIError(response);
     }
 
     const data = await response.json();
+    console.log('📦 fetchAllBundles: API response received');
+    
+    // Parse API response (per documentation: { success: true, data: { bundles: [...] } })
+    const responseData = parseAPIResponse(data);
+    const bundles = responseData?.bundles || data?.bundles || [];
     
     // Return array of bundles with their names
-    if (data && Array.isArray(data.bundles)) {
-      return data.bundles.map(bundle => ({
+    if (Array.isArray(bundles)) {
+      return bundles.map(bundle => ({
         name: bundle.name,
         description: bundle.description,
         countries: bundle.countries,
@@ -242,12 +498,16 @@ export const fetchAllBundles = async () => {
     
     return [];
   } catch (error) {
-    console.error('Error fetching all bundles:', error);
+    console.error('❌ fetchAllBundles: Error fetching all bundles:', error);
     throw error;
   }
 };
 
 /**
+ * Step 2: Get Bundle Details (Optional)
+ * API Documentation: MOBILE_API_DOCUMENTATION.md - Section 2
+ * Endpoint: GET /api/v1/bundles/{bundleName}
+ * 
  * Fetch plan details by bundle name
  * @param {string} bundleName - Bundle name (e.g., 'esim_1GB_7D_GB_V2')
  * @returns {Promise<Object>} Plan details object
@@ -255,21 +515,37 @@ export const fetchAllBundles = async () => {
 export const fetchPlanDetails = async (bundleName) => {
   try {
     if (!bundleName) {
+      console.error('❌ fetchPlanDetails: bundleName is required but was not provided');
       throw new Error('Bundle name is required');
     }
 
-    const response = await fetch(`${TTELGO_API}/plans/bundles/${bundleName}`, {
+    // Per documentation: GET /api/v1/bundles/{bundleName}
+    const apiUrl = `${TTELGO_API_V1}/bundles/${bundleName}`;
+    console.log('🌐 fetchPlanDetails: Calling API URL:', apiUrl);
+    console.log('📦 fetchPlanDetails: bundleName parameter:', bundleName);
+
+    const response = await fetch(apiUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
+    console.log('📡 fetchPlanDetails: Response status:', response.status, response.statusText);
+
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      console.error('❌ fetchPlanDetails: HTTP error response status:', response.status);
+      await handleAPIError(response);
     }
 
-    const bundle = await response.json();
+    const data = await response.json();
+    console.log('📦 fetchPlanDetails: API response data:', JSON.stringify(data, null, 2));
+    
+    // API returns: { success: true, message: "Success", data: {...} }
+    // Per documentation: data.data contains the bundle object directly
+    const responseData = parseAPIResponse(data);
+    const bundle = responseData || data;
+    console.log('📦 fetchPlanDetails: Extracted bundle object:', bundle ? 'Found' : 'Not found', bundle);
     
     // Transform API response to the expected format
     if (bundle) {
@@ -326,7 +602,7 @@ export const fetchPlanDetails = async (bundleName) => {
         ? bundle.group[0] 
         : 'Standard Provider';
       
-      return {
+      const planDetails = {
         plan: dataText,
         validity: durationText,
         speed: speed,
@@ -341,17 +617,236 @@ export const fetchPlanDetails = async (bundleName) => {
         billingType: bundle.billingType || 'FixedCost',
         roamingEnabled: bundle.roamingEnabled || false
       };
+      console.log('✅ fetchPlanDetails: Successfully transformed plan details:', planDetails);
+      return planDetails;
     }
     
+    console.warn('⚠️ fetchPlanDetails: Bundle object not found in API response');
     return null;
   } catch (error) {
-    console.error('Error fetching plan details:', error);
+    console.error('❌ fetchPlanDetails: Error fetching plan details:', error);
+    console.error('❌ fetchPlanDetails: Error stack:', error.stack);
     throw error;
   }
 };
 
 /**
- * Create an order using eSIM Go API v2.4
+ * Step 3: Create Order
+ * API Documentation: MOBILE_API_DOCUMENTATION.md - Section 3
+ * Endpoint: POST /api/v1/esims/orders
+ * 
+ * Create an eSIM order using TTelgo API v1 (Bundle Purchase)
+ * IMPORTANT: This function returns orderReference which must be used for Get QR Code API
+ * 
+ * @param {Object} orderData - Order data containing bundle name, quantity, etc.
+ * @param {string} orderData.bundleName - Bundle name (item) - REQUIRED
+ * @param {number} orderData.quantity - Quantity (default: 1)
+ * @param {boolean} orderData.allowReassign - Allow reassign (default: false)
+ * @returns {Promise<Object>} Order response object with orderReference (use for Get QR Code), matchingId, iccid, etc.
+ *   Response structure: { orderReference: "...", order: [{ esims: [{ matchingId, iccid }] }] }
+ */
+export const createOrder = async (orderData) => {
+  try {
+    // Validate required fields
+    if (!orderData || !orderData.bundleName) {
+      throw new Error('Bundle name is required to create an order');
+    }
+    
+    // Per documentation: POST /api/v1/esims/orders
+    // Request body structure:
+    const requestBody = {
+      type: 'transaction', // Must be "transaction" per documentation
+      assign: true, // Must be true per documentation
+      order: [
+        {
+          type: 'bundle', // Must be "bundle" per documentation
+          item: orderData.bundleName.trim(), // Bundle name from List Bundles API
+          quantity: orderData.quantity || 1,
+          allowReassign: orderData.allowReassign || false,
+        }
+      ]
+    };
+    
+    const apiUrl = `${TTELGO_API_V1}/esims/orders`;
+    console.log('🌐 createOrder: Calling API URL:', apiUrl);
+    console.log('📦 createOrder: Request body:', JSON.stringify(requestBody, null, 2));
+    
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    console.log('📡 createOrder: Response status:', response.status, response.statusText);
+    console.log('📡 createOrder: Response headers:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
+
+    if (!response.ok) {
+      console.error('❌ createOrder: HTTP error response status:', response.status);
+      const errorText = await response.text();
+      console.error('❌ createOrder: Error response body:', errorText);
+      let errorData = {};
+      try {
+        errorData = JSON.parse(errorText);
+      } catch (e) {
+        // Not JSON, use text as error
+      }
+      console.error('❌ createOrder: Parsed error data:', errorData);
+      
+      // Check for credit-related errors
+      const errorMessage = errorData.message || errorData.error || errorData.errorMessage || errorText || '';
+      const errorMessageLower = errorMessage.toLowerCase();
+      
+      if (errorMessageLower.includes('credit') || 
+          errorMessageLower.includes('insufficient') || 
+          errorMessageLower.includes('not enough') ||
+          errorMessageLower.includes('balance') ||
+          errorMessageLower.includes('funds')) {
+        // Create a specific error for credit issues
+        const creditError = new Error('INSUFFICIENT_CREDIT');
+        creditError.originalMessage = errorMessage;
+        creditError.isCreditError = true;
+        throw creditError;
+      }
+      
+      await handleAPIError(response);
+      return; // handleAPIError throws, but TypeScript/flow control
+    }
+
+    const data = await response.json();
+    console.log('📦 createOrder: API response received');
+    console.log('📦 createOrder: Raw API response:', JSON.stringify(data, null, 2));
+    console.log('📦 createOrder: Response keys:', Object.keys(data || {}));
+    
+    // Check if response has success: false
+    if (data && data.success === false) {
+      const errorMessage = data.message || data.error || 'Order creation failed';
+      console.error('❌ createOrder: API returned success: false');
+      
+      // Check for credit-related errors in the error message
+      const errorMessageLower = errorMessage.toLowerCase();
+      if (errorMessageLower.includes('credit') || 
+          errorMessageLower.includes('insufficient') || 
+          errorMessageLower.includes('not enough') ||
+          errorMessageLower.includes('balance') ||
+          errorMessageLower.includes('funds')) {
+        // Create a specific error for credit issues
+        const creditError = new Error('INSUFFICIENT_CREDIT');
+        creditError.originalMessage = errorMessage;
+        creditError.isCreditError = true;
+        throw creditError;
+      }
+      
+      throw new Error(errorMessage);
+    }
+    
+    // Parse API response (per documentation: { success: true, data: {...} })
+    // But handle cases where response structure might be different
+    let responseData = parseAPIResponse(data);
+    console.log('📋 createOrder: Parsed response data:', JSON.stringify(responseData, null, 2));
+    
+    // If parseAPIResponse returned the whole object (because data.data was undefined),
+    // check if orderReference is at the top level
+    if (responseData && responseData.success === true && !responseData.orderReference && !responseData.data) {
+      console.log('⚠️ createOrder: Response structure might be different, checking top level...');
+      // Maybe the response is directly the data, or orderReference is at top level
+      // Try to extract from raw data
+      if (data.data && typeof data.data === 'object') {
+        responseData = data.data;
+        console.log('✅ createOrder: Found data in data.data');
+      } else if (data.orderReference) {
+        responseData = data;
+        console.log('✅ createOrder: Found orderReference at top level');
+      }
+    }
+    
+    // Check if response data is empty or doesn't contain expected fields
+    if (!responseData || (typeof responseData === 'object' && Object.keys(responseData).length === 0)) {
+      console.error('❌ createOrder: Response data is empty');
+      console.error('❌ createOrder: Raw response:', JSON.stringify(data, null, 2));
+      throw new Error('Order creation response is empty. The API may not have created the order successfully. Please check the bundle name and try again.');
+    }
+    
+    // Check if responseData only contains success/message without data
+    if (responseData.success === true && responseData.message && !responseData.data && !responseData.orderReference && !responseData.reference) {
+      console.error('❌ createOrder: Response contains only success message, no order data');
+      console.error('❌ createOrder: Raw response keys:', Object.keys(data || {}));
+      console.error('❌ createOrder: Parsed response keys:', Object.keys(responseData || {}));
+      console.error('❌ createOrder: Full raw response:', JSON.stringify(data, null, 2));
+      console.error('❌ createOrder: Bundle name used:', orderData.bundleName);
+      console.error('❌ createOrder: Request body sent:', JSON.stringify(requestBody, null, 2));
+      
+      // This usually means the bundle name is invalid or the API couldn't process the order
+      // Provide a more helpful error message with the bundle name
+      const bundleName = orderData.bundleName;
+      throw new Error(
+        `Order creation failed: The API returned success but no order data.\n\n` +
+        `Bundle Name Used: "${bundleName}"\n\n` +
+        `Possible issues:\n` +
+        `1. The bundle name "${bundleName}" might not exist in the API\n` +
+        `2. The bundle name format might be incorrect\n` +
+        `3. The bundle might be out of stock or unavailable\n` +
+        `4. The API might require authentication\n\n` +
+        `Please verify the bundle name is correct and try again.`
+      );
+    }
+    
+    // Extract orderReference from response (per API documentation)
+    // Documentation: Response structure is { success: true, data: { orderReference: "...", order: [...] } }
+    // parseAPIResponse extracts the 'data' field, so responseData should contain orderReference directly
+    // Primary path: responseData.orderReference (per documentation line 260)
+    // Fallback paths for robustness in case response structure varies
+    const orderReference = responseData?.orderReference || 
+                          responseData?.reference || 
+                          data?.data?.orderReference ||
+                          data?.data?.reference ||
+                          data?.orderReference ||
+                          data?.reference;
+    
+    console.log('📋 createOrder: Order reference (extracted):', orderReference);
+    console.log('📋 createOrder: Extraction path used:', 
+      responseData?.orderReference ? 'responseData.orderReference (primary)' :
+      responseData?.reference ? 'responseData.reference (fallback)' :
+      data?.data?.orderReference ? 'data.data.orderReference (fallback)' :
+      'other fallback');
+    
+    // Extract matchingId and iccid from response structure (per API documentation)
+    // Structure: data.order[0].esims[0].{matchingId, iccid}
+    const matchingId = responseData?.order?.[0]?.esims?.[0]?.matchingId || null;
+    const iccid = responseData?.order?.[0]?.esims?.[0]?.iccid || null;
+    console.log('🔑 createOrder: Matching ID:', matchingId);
+    console.log('📱 createOrder: ICCID:', iccid);
+    
+    // Verify orderReference is present
+    if (!orderReference) {
+      console.error('❌ createOrder: No orderReference found in response');
+      console.error('❌ createOrder: Response data keys:', Object.keys(responseData || {}));
+      console.error('❌ createOrder: Raw data keys:', Object.keys(data || {}));
+      console.error('❌ createOrder: Full response data:', JSON.stringify(responseData, null, 2));
+      console.error('❌ createOrder: Full raw response:', JSON.stringify(data, null, 2));
+      
+      // Provide more helpful error message
+      const bundleName = orderData.bundleName;
+      throw new Error(`Order creation failed: No order reference received.\n\nBundle Name: ${bundleName}\n\nPossible issues:\n1. Bundle name "${bundleName}" might not exist or is incorrect\n2. The API might require authentication\n3. The request format might be incorrect\n\nPlease check the bundle name and try again.`);
+    }
+    
+    // If we found orderReference but it's not in responseData, add it
+    if (!responseData.orderReference && orderReference) {
+      responseData.orderReference = orderReference;
+    }
+    
+    console.log('✅ createOrder: Order created successfully with orderReference:', orderReference);
+    
+    return responseData || data;
+  } catch (error) {
+    console.error('❌ createOrder: Error creating order:', error);
+    throw error;
+  }
+};
+
+/**
+ * Create an order using eSIM Go API v2.4 (Legacy function - kept for backward compatibility)
  * Reference: https://docs.esim-go.com/api/v2_4/operations/orders/post/
  * @param {Object} orderData - Order data containing bundle name, quantity, etc.
  * @param {string} orderData.bundleName - Bundle name (item)
@@ -1302,7 +1797,139 @@ export const getOrderByReference = async (orderReference) => {
 };
 
 /**
- * Get eSIM QR code by matching ID
+ * Step 4: Get QR Code
+ * API Documentation: MOBILE_API_DOCUMENTATION.md - Section 4
+ * Endpoint: GET /api/v1/esims/{orderReference}/qr
+ * 
+ * IMPORTANT: orderReference must be taken from Create Order API response (data.orderReference)
+ * 
+ * Get QR Code using TTelgo API v1
+ * @param {string} orderReference - Order Reference from Create Order response (data.orderReference)
+ *   Example: '73028252-1f26-4f22-9517-4fc879dbb8fb'
+ * @returns {Promise<Object>} QR Code response with qrCode (LPA string or ZIP file), matchingId, and iccid
+ *   Response structure: { qrCode: "...", matchingId: "...", iccid: "..." }
+ *   Note: qrCode may be a ZIP file containing PNG image (extracted automatically)
+ */
+export const getQRCode = async (orderReference) => {
+  try {
+    if (!orderReference) {
+      throw new Error('Order Reference is required to get QR code');
+    }
+    
+    // Per documentation: GET https://ttelgo.com/api/v1/esims/{orderReference}/qr
+    // Example: https://ttelgo.com/api/v1/esims/BCCVJ-TMDA6-BWUDC-PMXUV/qr
+    // Dynamically replace {orderReference} with the actual value
+    const apiUrl = `${TTELGO_API_V1}/esims/${orderReference}/qr`;
+    console.log('🌐 getQRCode: Calling API URL:', apiUrl);
+    console.log('📦 getQRCode: Order Reference:', orderReference);
+    console.log('📦 getQRCode: Full endpoint:', `https://ttelgo.com/api/v1/esims/${orderReference}/qr`);
+    
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    console.log('📡 getQRCode: Response status:', response.status, response.statusText);
+
+    if (!response.ok) {
+      console.error('❌ getQRCode: HTTP error response status:', response.status);
+      await handleAPIError(response);
+    }
+
+    const data = await response.json();
+    console.log('📦 getQRCode: API response received');
+    console.log('📦 getQRCode: Raw API response:', JSON.stringify(data, null, 2));
+    
+    // Parse API response (per documentation: { success: true, data: { qrCode: "...", matchingId: "...", iccid: "..." } })
+    const responseData = parseAPIResponse(data);
+    console.log('✅ getQRCode: QR code retrieved successfully');
+    console.log('🔑 getQRCode: Parsed response data:', JSON.stringify(responseData, null, 2));
+    
+    // The qrCode field contains a ZIP file (binary data starting with "PK")
+    // Extract PNG image from ZIP file for display
+    if (responseData && responseData.qrCode) {
+      const qrCodeValue = responseData.qrCode;
+      console.log('📦 getQRCode: QR Code type detected:', typeof qrCodeValue);
+      console.log('📦 getQRCode: QR Code length:', qrCodeValue ? qrCodeValue.length : 0);
+      console.log('📦 getQRCode: QR Code starts with:', qrCodeValue ? qrCodeValue.substring(0, 10) : 'N/A');
+      
+      // Check if it's a ZIP file (starts with "PK")
+      if (typeof qrCodeValue === 'string' && qrCodeValue.startsWith('PK')) {
+        console.log('📦 getQRCode: QR Code is a ZIP file, extracting PNG image...');
+        responseData.qrCodeType = 'zip';
+        
+        // Try to extract PNG from ZIP
+        if (JSZip) {
+          try {
+            // The qrCode string contains binary ZIP data (from JSON response)
+            // JSON.parse converts Unicode escape sequences to actual bytes
+            // Convert string directly to Uint8Array for JSZip
+            console.log('📦 getQRCode: Converting ZIP string to binary...');
+            const zipBytes = new Uint8Array(qrCodeValue.length);
+            for (let i = 0; i < qrCodeValue.length; i++) {
+              // Get byte value (0-255) from character code
+              const charCode = qrCodeValue.charCodeAt(i);
+              // eslint-disable-next-line no-bitwise
+              zipBytes[i] = charCode > 255 ? charCode & 0xFF : charCode;
+            }
+            console.log('📦 getQRCode: ZIP bytes prepared, length:', zipBytes.length);
+            
+            // Load ZIP file
+            const zip = await JSZip.loadAsync(zipBytes);
+            console.log('📦 getQRCode: ZIP file loaded, files:', Object.keys(zip.files));
+            
+            // Find PNG file in ZIP (usually named like *.png)
+            const pngFiles = Object.keys(zip.files).filter(name => 
+              name.toLowerCase().endsWith('.png') && !zip.files[name].dir
+            );
+            
+            if (pngFiles.length > 0) {
+              const pngFileName = pngFiles[0];
+              console.log('📦 getQRCode: Found PNG file:', pngFileName);
+              
+              // Extract PNG as base64
+              const pngData = await zip.files[pngFileName].async('base64');
+              const pngDataUri = `data:image/png;base64,${pngData}`;
+              
+              // Replace qrCode with extracted PNG image
+              responseData.qrCode = pngDataUri;
+              responseData.qrCodeType = 'image';
+              responseData.qrCodeOriginalZip = qrCodeValue; // Keep original ZIP for reference
+              console.log('✅ getQRCode: PNG image extracted successfully from ZIP');
+            } else {
+              console.warn('⚠️ getQRCode: No PNG file found in ZIP');
+              responseData.qrCodeBase64 = qrCodeValue;
+            }
+          } catch (zipError) {
+            console.error('❌ getQRCode: Error extracting ZIP:', zipError);
+            console.error('❌ getQRCode: ZIP error details:', zipError.message, zipError.stack);
+            // Fallback: keep ZIP as is, user can use matchingId for manual installation
+            responseData.qrCodeBase64 = qrCodeValue;
+          }
+        } else {
+          console.warn('⚠️ getQRCode: JSZip not available, cannot extract PNG from ZIP');
+          responseData.qrCodeBase64 = qrCodeValue;
+        }
+      } else if (typeof qrCodeValue === 'string' && (qrCodeValue.startsWith('data:image') || qrCodeValue.startsWith('http'))) {
+        console.log('📦 getQRCode: QR Code is an image URL or data URI');
+        responseData.qrCodeType = 'image';
+      } else {
+        console.log('📦 getQRCode: QR Code is a raw string (LPA format)');
+        responseData.qrCodeType = 'lpa';
+      }
+    }
+    
+    return responseData || data;
+  } catch (error) {
+    console.error('❌ getQRCode: Error getting QR code:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get eSIM QR code by matching ID (Legacy function - kept for backward compatibility)
  * @param {string} matchingId - eSIM matching ID
  * @returns {Promise<string>} QR code image URL or base64 data
  */

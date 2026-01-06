@@ -3,6 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Image, Dimensions
 import HeaderScreen from './Header';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { getSafeWindowDimensions, scaleSize } from '../utils/dimensions';
+import { fetchRegionalPackages } from '../services/api';
 
 // Base design dimensions (iPhone standard)
 const BASE_WIDTH = 375;
@@ -84,101 +85,19 @@ export default function RegionalESimsScreen({ navigation, route }) {
       setError(null);
       console.log('Fetching regional packages from API...');
       
-      // Fetch raw data directly from API
-      const BASE_URL = 'https://www.ttelgo.com/api';
-      const response = await fetch(`${BASE_URL}/plans/bundles/regional`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const apiData = await response.json();
-      console.log('Regional packages API response:', apiData);
+      // Use fetchRegionalPackages from API service (groups by region)
+      const packages = await fetchRegionalPackages();
+      console.log('Regional packages API response:', packages);
       
-      if (apiData && Array.isArray(apiData.bundles) && apiData.bundles.length > 0) {
-        // Group bundles by region
-        const regionMap = {};
-        
-        apiData.bundles.forEach(bundle => {
-          if (bundle.countries && Array.isArray(bundle.countries)) {
-            bundle.countries.forEach(country => {
-              const region = country.region || 'Other';
-              
-              if (!regionMap[region]) {
-                regionMap[region] = {
-                  id: region,
-                  planName: region,
-                  icon: regionIcons[region] || 'map',
-                  iconColor: regionColors[region] || '#CC0000',
-                  price: null,
-                  data: null,
-                  validity: null,
-                  countries: [],
-                  bundles: [],
-                };
-              }
-              
-              // Add country if not already in list
-              const countryExists = regionMap[region].countries.some(
-                c => c.name === country.name
-              );
-              
-              if (!countryExists) {
-                regionMap[region].countries.push({
-                  name: country.name,
-                  flag: country.iso?.toLowerCase() || getCountryCode(country.name),
-                  iso: country.iso,
-                });
-              }
-              
-              // Store bundle reference
-              if (!regionMap[region].bundles.some(b => b.name === bundle.name)) {
-                regionMap[region].bundles.push(bundle);
-              }
-              
-              // Set price (use first bundle's price as reference)
-              if (!regionMap[region].price && bundle.price) {
-                regionMap[region].price = bundle.price.toFixed(2);
-              }
-              
-              // Set data and validity from first bundle
-              if (!regionMap[region].data) {
-                if (bundle.unlimited || bundle.dataAmount === -1) {
-                  regionMap[region].data = 'Unlimited';
-                } else if (bundle.dataAmount) {
-                  const dataInGB = bundle.dataAmount / 1000;
-                  regionMap[region].data = dataInGB % 1 === 0 
-                    ? `${dataInGB} GB` 
-                    : `${dataInGB.toFixed(1)} GB`;
-                }
-              }
-              
-              if (!regionMap[region].validity && bundle.duration) {
-                regionMap[region].validity = `${bundle.duration} ${bundle.duration === 1 ? 'Day' : 'Days'}`;
-              }
-            });
-          }
-        });
-        
-        // Convert map to array and filter by selected region if provided
-        let packages = Object.values(regionMap);
-        
+      if (Array.isArray(packages) && packages.length > 0) {
+        // Filter by selected region if provided
+        let filteredPackages = packages;
         if (selectedRegion) {
-          packages = packages.filter(pkg => pkg.planName === selectedRegion);
+          filteredPackages = packages.filter(pkg => pkg.planName === selectedRegion);
         }
         
-        // Sort countries within each package
-        packages.forEach(pkg => {
-          pkg.countries.sort((a, b) => a.name.localeCompare(b.name));
-        });
-        
-        setRegionalPackages(packages);
-        console.log(`✅ Loaded ${packages.length} regional packages from API`);
+        setRegionalPackages(filteredPackages);
+        console.log(`✅ Loaded ${filteredPackages.length} regional packages from API`);
       } else {
         console.warn('⚠️ API returned empty or invalid regional packages');
         setRegionalPackages([]);

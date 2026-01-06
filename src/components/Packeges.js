@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image, ActivityIndicator, Animated, Dimensions } from "react-native";
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import HeaderScreen from './Header';
-import { fetchCountryPlans } from '../services/api';
+import { fetchCountryPlans, fetchPlanDetails } from '../services/api';
 
 const { height: screenHeight } = Dimensions.get('window');
 
@@ -17,29 +17,100 @@ export default function DataPlanScreen({ route, navigation }) {
   // Get country data from route params, default to United States if not provided
   const countryName = (route && route.params && route.params.countryName) ? route.params.countryName : 'United States';
   const countryFlag = (route && route.params && route.params.countryFlag) ? route.params.countryFlag : 'us';
+  const bundleName = (route && route.params && route.params.bundleName) ? route.params.bundleName : null;
+  
+  console.log('📥 DataPlanScreen - route params:', route?.params);
+  console.log('📦 DataPlanScreen - bundleName:', bundleName);
   
   // State management
   const [plans, setPlans] = useState(defaultPlans);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [bundleDetails, setBundleDetails] = useState(null);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [slideAnim] = useState(new Animated.Value(0)); // For popup animation
+
+  // Fetch bundle details by bundleName
+  const loadBundleDetails = useCallback(async () => {
+    if (!bundleName) {
+      console.log('⚠️ No bundleName provided, skipping bundle details fetch');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('📡 Fetching bundle details for bundleName:', bundleName);
+      
+      // Call API: https://ttelgo.com/api/v1/bundles/{bundleName}
+      const apiUrl = `https://ttelgo.com/api/v1/bundles/${bundleName}`;
+      console.log('🌐 Calling API URL:', apiUrl);
+      
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      console.log('📡 Response status:', response.status, response.statusText);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorData = {};
+        try {
+          errorData = JSON.parse(errorText);
+        } catch (e) {
+          throw new Error(errorText || `HTTP error! status: ${response.status}`);
+        }
+        const errorMessage = errorData.message || errorData.error || `HTTP error! status: ${response.status}`;
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+      console.log('📦 Bundle details API response:', JSON.stringify(data, null, 2));
+      
+      // Parse API response (per documentation: { success: true, data: {...} })
+      let bundleData = null;
+      if (data && data.success !== false && data.data !== undefined) {
+        bundleData = data.data;
+      } else {
+        bundleData = data;
+      }
+      
+      if (bundleData) {
+        console.log('✅ Bundle details loaded successfully');
+        setBundleDetails(bundleData);
+      } else {
+        throw new Error('Bundle details not found in response');
+      }
+    } catch (err) {
+      console.error('❌ Error loading bundle details:', err);
+      setError(err.message || 'Failed to load bundle details');
+    } finally {
+      setLoading(false);
+    }
+  }, [bundleName]);
 
   const loadPlans = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       console.log('📡 Fetching plans for country:', countryFlag);
       
       const data = await fetchCountryPlans(countryFlag);
       
       if (Array.isArray(data) && data.length > 0) {
-        setPlans(data);
         console.log(`✅ Loaded ${data.length} plans from API`);
+        console.log('📦 Plans data structure (first 2):', JSON.stringify(data.slice(0, 2), null, 2));
+        setPlans(data);
       } else {
         console.log('⚠️ API returned empty plans, using default');
         setPlans(defaultPlans);
       }
-    } catch (error) {
-      console.error('❌ Error loading plans:', error);
+    } catch (err) {
+      console.error('❌ Error loading plans:', err);
+      setError(err.message || 'Failed to load plans');
       console.log('Using default plans');
       setPlans(defaultPlans);
     } finally {
@@ -47,10 +118,16 @@ export default function DataPlanScreen({ route, navigation }) {
     }
   }, [countryFlag]);
 
-  // Fetch plans from API when component mounts
+  // Fetch bundle details or plans from API when component mounts
   useEffect(() => {
-    loadPlans();
-  }, [loadPlans]);
+    if (bundleName) {
+      // If bundleName is provided, fetch bundle details
+      loadBundleDetails();
+    } else {
+      // Otherwise, fetch plans list as before
+      loadPlans();
+    }
+  }, [bundleName, loadBundleDetails, loadPlans]);
   
   // Toggle plan selection (radio button behavior - only one selected at a time)
   const togglePlanSelection = (planId) => {
@@ -135,13 +212,101 @@ export default function DataPlanScreen({ route, navigation }) {
 
       {/* Content */}
       <View style={styles.content}>
-        <Text style={styles.chooseText}>Choose a data plan</Text>
+        <Text style={styles.chooseText}>
+          {bundleName ? 'Bundle Details' : 'Choose a data plan'}
+        </Text>
 
         {/* Loading State */}
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#CC0000" />
-            <Text style={styles.loadingText}>Loading plans...</Text>
+            <Text style={styles.loadingText}>
+              {bundleName ? 'Loading bundle details...' : 'Loading plans...'}
+            </Text>
+          </View>
+        ) : error ? (
+          <View style={styles.errorContainer}>
+            <Ionicons name="alert-circle-outline" size={48} color="#CC0000" />
+            <Text style={styles.errorText}>
+              {bundleName ? 'Failed to load bundle details' : 'Failed to load plans'}
+            </Text>
+            <Text style={styles.errorSubText}>{error}</Text>
+            <TouchableOpacity 
+              style={styles.retryButton}
+              onPress={() => {
+                if (bundleName) {
+                  loadBundleDetails();
+                } else {
+                  loadPlans();
+                }
+              }}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : bundleName && bundleDetails ? (
+          /* Bundle Details Display */
+          <View style={styles.bundleDetailsContainer}>
+            <View style={styles.bundleCard}>
+              <Text style={styles.bundleTitle}>{bundleDetails.name || bundleName}</Text>
+              
+              {bundleDetails.data && (
+                <View style={styles.bundleInfoRow}>
+                  <Text style={styles.bundleInfoLabel}>Data:</Text>
+                  <Text style={styles.bundleInfoValue}>{bundleDetails.data}</Text>
+                </View>
+              )}
+              
+              {bundleDetails.validity && (
+                <View style={styles.bundleInfoRow}>
+                  <Text style={styles.bundleInfoLabel}>Validity:</Text>
+                  <Text style={styles.bundleInfoValue}>{bundleDetails.validity}</Text>
+                </View>
+              )}
+              
+              {bundleDetails.duration && (
+                <View style={styles.bundleInfoRow}>
+                  <Text style={styles.bundleInfoLabel}>Duration:</Text>
+                  <Text style={styles.bundleInfoValue}>{bundleDetails.duration}</Text>
+                </View>
+              )}
+              
+              <View style={styles.bundleInfoRow}>
+                <Text style={styles.bundleInfoLabel}>Price:</Text>
+                <View style={styles.priceRow}>
+                  {bundleDetails.oldPrice && (
+                    <Text style={styles.oldPrice}>${bundleDetails.oldPrice}</Text>
+                  )}
+                  <Text style={styles.newPrice}>
+                    ${bundleDetails.newPrice || bundleDetails.price || 'N/A'}
+                  </Text>
+                </View>
+              </View>
+              
+              {bundleDetails.description && (
+                <View style={styles.bundleDescriptionContainer}>
+                  <Text style={styles.bundleDescriptionLabel}>Description:</Text>
+                  <Text style={styles.bundleDescription}>{bundleDetails.description}</Text>
+                </View>
+              )}
+              
+              <TouchableOpacity 
+                style={styles.checkoutButton}
+                onPress={() => {
+                  navigation.navigate('YourOrderScreen', {
+                    country: countryName,
+                    flag: countryFlag,
+                    data: bundleDetails.data || 'N/A',
+                    days: bundleDetails.duration || bundleDetails.validity || 'N/A',
+                    price: bundleDetails.newPrice || bundleDetails.price || '0',
+                    oldPrice: bundleDetails.oldPrice,
+                    bundleName: bundleName,
+                  });
+                }}
+              >
+                <Text style={styles.checkoutButtonText}>Checkout</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : plans.length === 0 ? (
           <View style={styles.emptyContainer}>
@@ -183,10 +348,20 @@ export default function DataPlanScreen({ route, navigation }) {
 
                 <TouchableOpacity 
                   style={styles.planDetailsButton}
-                  onPress={() => navigation.navigate('DataPlan', {
-                    countryName: countryName,
-                    countryFlag: countryFlag
-                  })}
+                  onPress={() => {
+                    console.log('🔍 Plan Details clicked for plan:', plan);
+                    console.log('📦 bundleName being passed:', plan.bundleName);
+                    console.log('🌍 Navigation params:', {
+                      countryName,
+                      countryFlag,
+                      bundleName: plan.bundleName
+                    });
+                    navigation.navigate('DataPlan', {
+                      countryName: countryName,
+                      countryFlag: countryFlag,
+                      bundleName: plan.bundleName // Pass bundle name for fetching details
+                    });
+                  }}
                 >
                   <Text style={styles.planDetailsText}>Plan Details</Text>
                 </TouchableOpacity>
@@ -540,5 +715,89 @@ const styles = StyleSheet.create({
     color: "#333",
     fontWeight: "600",
     marginBottom: 10,
+  },
+  bundleDetailsContainer: {
+    marginTop: 20,
+  },
+  bundleCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 10,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  bundleTitle: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#000",
+    marginBottom: 16,
+  },
+  bundleInfoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  bundleInfoLabel: {
+    fontSize: 16,
+    color: "#666",
+    fontWeight: "500",
+  },
+  bundleInfoValue: {
+    fontSize: 16,
+    color: "#000",
+    fontWeight: "bold",
+  },
+  bundleDescriptionContainer: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#E0E0E0",
+  },
+  bundleDescriptionLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 8,
+  },
+  bundleDescription: {
+    fontSize: 14,
+    color: "#666",
+    lineHeight: 20,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 20,
+  },
+  errorText: {
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#CC0000',
+    textAlign: 'center',
+  },
+  errorSubText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 20,
+    backgroundColor: '#CC0000',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

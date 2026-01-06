@@ -106,11 +106,7 @@ function AppContent() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-});
+// Styles removed - not used in this component
 
 const customStyles = StyleSheet.create({
   container: {

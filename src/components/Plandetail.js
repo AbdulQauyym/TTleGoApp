@@ -169,10 +169,14 @@ function DetailRow({ label, value }) {
 
 export default function DataPlan({navigation, route}) {
   // Get country data from route params, default to Germany if not provided
+  console.log('📥 DataPlan component - route params:', route?.params);
   const countryName = (route && route.params && route.params.countryName) ? route.params.countryName : 'Germany';
   const countryFlag = (route && route.params && route.params.countryFlag) ? route.params.countryFlag : 'de';
   const bundleName = (route && route.params && route.params.bundleName) ? route.params.bundleName : null;
   const planData = (route && route.params && route.params.planData) ? route.params.planData : null;
+  
+  console.log('📦 DataPlan - Received bundleName:', bundleName);
+  console.log('🌍 DataPlan - countryName:', countryName, 'countryFlag:', countryFlag);
   
   // State management
   const [planDetails, setPlanDetails] = useState({
@@ -190,10 +194,12 @@ export default function DataPlan({navigation, route}) {
 
   // Fetch plan details from API
   const loadPlanDetails = useCallback(async () => {
+    console.log('🔄 loadPlanDetails called with bundleName:', bundleName);
     let actualBundleName = bundleName;
 
     // If no bundle name provided, try to find it from all bundles
     if (!actualBundleName && planData) {
+      console.log('⚠️ No bundleName provided, trying to find from planData:', planData);
       try {
         setLoading(true);
         console.log('📡 Fetching all bundles to find matching bundle name...');
@@ -249,6 +255,7 @@ export default function DataPlan({navigation, route}) {
     try {
       setLoading(true);
       console.log('📡 Fetching plan details for bundle:', actualBundleName);
+      console.log('🌐 API URL will be: https://ttelgo.com/api/v1/bundles/' + actualBundleName);
       
       const details = await fetchPlanDetails(actualBundleName);
       

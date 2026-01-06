@@ -151,8 +151,6 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
     paddingVertical: 50,
-    alignItems: "center",
-
   paddingHorizontal: 1000,
   position: 'relative',
 },

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, Image, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Linking, ActivityIndicator, TextInput, Platform, PermissionsAndroid, Alert } from 'react-native';
 import HeaderScreen from './Header';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -33,7 +33,7 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 function HomeScreen({navigation}) {
   const { language } = useLanguage();
-  const t = (key) => translate(language, key);
+  const t = useMemo(() => (key) => translate(language, key), [language]);
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
   const [activeTab, setActiveTab] = useState('Local'); // 'Local', 'Regional', 'Global'
   const adScrollViewRef = useRef(null);
@@ -50,29 +50,35 @@ function HomeScreen({navigation}) {
     try {
       setLoading(true);
       setError(null);
+      console.log('🔄 Starting to load countries...');
+      
       const data = await fetchCountries();
+      console.log('📦 Received data from fetchCountries:', Array.isArray(data) ? `${data.length} items` : typeof data);
       
       // The API service now returns data in the correct format
       // Expected format: [{ name: string, price: string, flag: string }, ...]
       if (Array.isArray(data) && data.length > 0) {
         setCountries(data);
         setError(null); // Clear any previous errors
-        console.log(`Loaded ${data.length} countries from API`);
+        console.log(`✅ Loaded ${data.length} countries from API`);
       } else {
         // No countries from API - show empty state
-        console.log('API returned empty data');
+        console.warn('⚠️ API returned empty data or invalid format');
         setCountries([]);
         setError(null);
       }
     } catch (err) {
       // Show error state if API fails
-      console.error('Error loading countries from API:', err.message);
+      console.error('❌ Error loading countries from API:', err);
+      console.error('❌ Error message:', err.message);
+      console.error('❌ Error stack:', err.stack);
       setCountries([]);
-      setError(t('home.failedToLoad'));
+      setError(err.message || t('home.failedToLoad') || 'Failed to load countries');
     } finally {
+      console.log('✅ Setting loading to false');
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const loadRegionalPackages = useCallback(async () => {
     try {
@@ -201,7 +207,7 @@ function HomeScreen({navigation}) {
         }
       }
     };
-  }, []);
+  }, [t]);
 
   // Safety check for navigation (after all hooks)
   if (!navigation) {
@@ -210,12 +216,12 @@ function HomeScreen({navigation}) {
 
   // Regions list for Regional tab
   const regionsList = [
-    { name: 'Africa', iconColor: '#FFC107' }, // Yellow
-    { name: 'Asia', iconColor: '#1976D2' }, // Dark blue
-    { name: 'Europe', iconColor: '#03A9F4' }, // Light blue
-    { name: 'North America', iconColor: '#4CAF50' }, // Green
-    { name: 'South America', iconColor: '#F44336' }, // Red
-    { name: 'Middle East', iconColor: '#8BC34A' }, // Light green
+    { name: 'Africa', iconColor: '#FFC107', iconEmoji: '🌍' }, // Yellow - Africa emoji
+    { name: 'Asia', iconColor: '#1976D2', iconEmoji: '🌏' }, // Dark blue - Asia-Pacific emoji
+    { name: 'Europe', iconColor: '#03A9F4', iconEmoji: '🌍' }, // Light blue - Europe emoji
+    { name: 'North America', iconColor: '#4CAF50', iconEmoji: '🌎' }, // Green - Americas emoji
+    { name: 'South America', iconColor: '#F44336', iconEmoji: '🌎' }, // Red - Americas emoji
+    { name: 'Middle East', iconColor: '#8BC34A', iconEmoji: '🌍' }, // Light green - Middle East emoji
   ];
 
   // Filter countries based on search query (computed before return to avoid hook issues)
@@ -811,9 +817,12 @@ function HomeScreen({navigation}) {
                 style={styles.countryItem}
                 onPress={() => {
                   try {
+                    // Navigate to DataPlanScreen to show ALL bundles for this country
+                    // Don't pass bundleName - let Packages.js fetch all bundles for the country
                     navigation?.navigate('DataPlanScreen', {
                       countryName: item.name,
                       countryFlag: item.flag
+                      // No bundleName - this will show all bundles for the country
                     });
                   } catch (error) {
                     console.error('Navigation error:', error);
@@ -871,8 +880,12 @@ function HomeScreen({navigation}) {
                     }
                   }}
                 >
-                  <View style={[styles.regionIconContainer, { backgroundColor: region.iconColor }]}>
-                    <Ionicons name="map-outline" size={24} color="#fff" />
+                  <View style={styles.regionIconContainer}>
+                    {region.iconEmoji ? (
+                      <Text style={styles.regionIconEmoji}>{region.iconEmoji}</Text>
+                    ) : (
+                      <Ionicons name="map-outline" size={24} color={region.iconColor} />
+                    )}
                   </View>
                   <Text style={styles.regionName}>{region.name}</Text>
                   <Ionicons name="chevron-forward" size={20} color="#999" />
@@ -1341,10 +1354,13 @@ const styles = StyleSheet.create({
   regionIconContainer: {
     width: 40,
     height: 40,
-    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    backgroundColor: 'transparent',
+  },
+  regionIconEmoji: {
+    fontSize: 24,
   },
   regionName: {
     flex: 1,

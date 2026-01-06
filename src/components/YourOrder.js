@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, TextInput, Dimensions, Alert, ActivityIndicator, Linking, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, TextInput, Dimensions, Alert, ActivityIndicator, Linking, Platform, Clipboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import HeaderScreen from './Header';
 import { 
+  createOrder,
   createESIMOrder,
+  getQRCode,
   getESIMInstallDetails,
   getESIMInstallURL,
   getOrderDetails,
@@ -47,6 +49,13 @@ export default function YourOrder({ navigation, route }) {
   const [selectedCountry, setSelectedCountry] = useState('Germany');
   const [countryPickerVisible, setCountryPickerVisible] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const [isFetchingQR, setIsFetchingQR] = useState(false);
+  const [qrCodeData, setQrCodeData] = useState(null);
+  const [qrCodeModalVisible, setQrCodeModalVisible] = useState(false);
+  const [orderReference, setOrderReference] = useState(null);
+  const [matchingId, setMatchingId] = useState(null);
+  const [iccid, setIccid] = useState(null);
   
   const creditCardImg = require("../assets/credit_card.png");
   const paypalImg = require("../assets/paypal.png");
@@ -107,203 +116,236 @@ export default function YourOrder({ navigation, route }) {
     iccid: null, // eSIM ICCID if available
   };
 
-  // Handle complete purchase - using eSIM Go API v2.4 directly
+  // Handle complete purchase - Checkout and QR generation flow
+  /**
+   * Complete Purchase Flow - Following TTelgo API Documentation
+   * Reference: MOBILE_API_DOCUMENTATION.md
+   * 
+   * Flow:
+   * 1. Extract bundle information from order details
+   * 2. Verify bundle exists (optional - ensures bundle name is valid)
+   * 3. Create Order: POST /api/v1/esims/orders
+   *    - Request body: { type: "transaction", assign: true, order: [{ type: "bundle", item: bundleName, quantity: 1 }] }
+   *    - Response: { success: true, data: { orderReference: "...", order: [{ esims: [{ matchingId, iccid }] }] } }
+   * 4. Extract orderReference from response (data.orderReference) - REQUIRED for QR Code API
+   * 5. Get QR Code: GET /api/v1/esims/{orderReference}/qr
+   *    - Uses orderReference from step 3 (NOT matchingId)
+   *    - Response: { success: true, data: { qrCode: "...", matchingId: "...", iccid: "..." } }
+   * 6. Display QR code to user for eSIM installation
+   */
   const handleCompletePurchase = async () => {
+    // Prevent duplicate submissions
+    if (isProcessing || isCreatingOrder || isFetchingQR) {
+      console.warn('⚠️ Purchase already in progress, ignoring duplicate submission');
+      return;
+    }
+
     setIsProcessing(true);
+    setIsCreatingOrder(true);
 
     try {
       // Step 1: Extract bundle information from order details
       // Priority: Use bundleName from route params (actual bundle ID from API)
       let bundleId = orderDetails.bundleName || orderDetails.bundleId;
       
+      console.log('📋 Step 0: Extracting bundle information...');
+      console.log('📋 orderDetails.bundleName:', orderDetails.bundleName);
+      console.log('📋 orderDetails.bundleId:', orderDetails.bundleId);
+      console.log('📋 Full orderDetails:', JSON.stringify(orderDetails, null, 2));
+      
       // If no bundle ID, try to construct it (fallback)
       if (!bundleId) {
+        console.warn('⚠️ No bundleName found in orderDetails, attempting to construct...');
         // Construct bundle ID from order details
         // Format: esim_{data}_{days}_{country}_{version}
         // Example: esim_1GB_7D_GB_V2
-        const dataAmount = orderDetails.data.replace(' GB', '').replace(' GB', '').trim();
-        const days = orderDetails.days.replace(' Days', '').replace(' Day', '').trim();
-        const countryCode = orderDetails.flag.toUpperCase();
+        const dataAmount = orderDetails.data ? orderDetails.data.replace(' GB', '').replace(' GB', '').trim() : '1';
+        const days = orderDetails.days ? orderDetails.days.replace(' Days', '').replace(' Day', '').trim() : '7';
+        const countryCode = orderDetails.flag ? orderDetails.flag.toUpperCase() : 'GB';
         
         // Handle decimal data amounts (e.g., "1.5 GB" -> "1.5GB" or "1.5")
         const dataFormatted = dataAmount.includes('.') ? dataAmount.replace('.', '') : dataAmount;
         bundleId = `esim_${dataFormatted}GB_${days}D_${countryCode}_V2`;
         
-        console.warn('No bundle ID provided, constructed:', bundleId);
+        console.warn('⚠️ Constructed bundle ID (may not be correct):', bundleId);
+        console.warn('⚠️ WARNING: Constructed bundle ID might not exist in the API. Please ensure bundleName is passed from the plan selection.');
       }
 
       // Validate bundle ID format
-      if (!bundleId || typeof bundleId !== 'string') {
-        throw new Error('Invalid bundle ID. Please select a plan and try again.');
-      }
-
-      // Step 2: Verify bundle exists (optional but helpful)
-      try {
-        console.log('Verifying bundle exists:', bundleId);
-        await fetchPlanDetails(bundleId);
-        console.log('Bundle verified successfully');
-      } catch (verifyError) {
-        console.warn('Bundle verification failed:', verifyError.message);
-        // Continue anyway - the activate endpoint will validate it
+      if (!bundleId || typeof bundleId !== 'string' || bundleId.trim().length === 0) {
+        throw new Error('Invalid bundle ID. Please go back and select a plan to get the correct bundle name.');
       }
       
-      // Step 3: Create Order using eSIM Go API v2.4
-      // POST https://api.esim-go.com/v2.4/orders
-      console.log('Creating eSIM order with eSIM Go API:');
-      console.log('Bundle ID:', bundleId);
-      console.log('Bundle ID type:', typeof bundleId);
-      console.log('Bundle ID length:', bundleId ? bundleId.length : 0);
+      // Log the bundle ID that will be used
+      console.log('✅ Using bundle ID:', bundleId);
+
+      // Step 2: Verify bundle exists before creating order
+      try {
+        console.log('🔍 Step 0.5: Verifying bundle exists:', bundleId);
+        const bundleDetails = await fetchPlanDetails(bundleId);
+        console.log('✅ Bundle verified successfully:', bundleDetails?.name || bundleId);
+        
+        // If bundle details don't have a name, the bundle might not exist
+        if (!bundleDetails || (!bundleDetails.name && !bundleDetails.bundleName)) {
+          console.warn('⚠️ Bundle details missing name, but continuing...');
+        }
+      } catch (verifyError) {
+        console.error('❌ Bundle verification failed:', verifyError.message);
+        // Don't continue if bundle doesn't exist - this will cause the order to fail
+        throw new Error(
+          `Bundle verification failed: The bundle "${bundleId}" was not found.\n\n` +
+          `Error: ${verifyError.message}\n\n` +
+          `Please go back and select a valid plan.`
+        );
+      }
+      
+      // Step 3: Create Order using TTelgo API v1
+      // API Documentation: MOBILE_API_DOCUMENTATION.md - Section 3
+      // Endpoint: POST /api/v1/esims/orders
+      // Request body: { type: "transaction", assign: true, order: [{ type: "bundle", item: bundleName, quantity: 1, allowReassign: false }] }
+      console.log('🛒 Step 3: Creating eSIM order...');
+      console.log('📦 Bundle ID:', bundleId);
+      console.log('📦 Bundle ID type:', typeof bundleId);
+      console.log('📦 Bundle ID length:', bundleId ? bundleId.length : 0);
+      console.log('📦 Full orderDetails:', JSON.stringify(orderDetails, null, 2));
       
       // Ensure bundleId is a valid string
       if (!bundleId || typeof bundleId !== 'string' || bundleId.trim().length === 0) {
-        throw new Error('Invalid bundle ID. Bundle name is required and must be a non-empty string.');
+        throw new Error('Invalid bundle ID. Bundle name is required and must be a non-empty string.\n\nPlease go back and select a plan to get the correct bundle name.');
       }
       
-      const orderResponse = await createESIMOrder({
+      // Call API: https://ttelgo.com/api/v1/esims/orders
+      console.log('🌐 Calling createOrder API with bundleName:', bundleId.trim());
+      const orderResponse = await createOrder({
         bundleName: bundleId.trim(), // Trim whitespace
         quantity: 1,
-        assign: true, // Assign to new eSIM
-        type: 'transaction', // Use 'validate' to test without charging
+        allowReassign: false,
       });
-
-      console.log('Order created successfully:', orderResponse);
-
-      // Extract order reference from response
-      // eSIM Go API returns orderReference in the response
-      let orderReference = null;
       
-      if (typeof orderResponse === 'string') {
-        // If response is a JSON string, parse it
-        try {
-          const parsed = JSON.parse(orderResponse);
-          orderReference = parsed.orderReference || parsed.reference || parsed.data?.orderReference;
-        } catch (e) {
-          // Not JSON, try to extract from string
-          const match = orderResponse.match(/orderReference["\s:]+([^"}\s]+)/i);
-          if (match) orderReference = match[1];
+      setIsCreatingOrder(false);
+
+      console.log('✅ Order created successfully:', orderResponse);
+      console.log('📋 Order response structure:', JSON.stringify(orderResponse, null, 2));
+
+      // Step 4: Extract orderReference from Create Order response
+      // API Documentation: MOBILE_API_DOCUMENTATION.md - Section 3, line 260
+      // Response structure: { success: true, data: { orderReference: "...", order: [{ esims: [{ matchingId, iccid }] }] } }
+      // parseAPIResponse already extracts the 'data' field, so orderResponse contains the data object
+      // IMPORTANT: orderReference is at data.orderReference (per documentation)
+      let orderReference = null;
+      let matchingId = null;
+      let iccid = null;
+      
+      if (typeof orderResponse === 'object') {
+        // Extract orderReference from data.orderReference (per API documentation line 260)
+        // This orderReference MUST be used for Get QR Code API (NOT matchingId)
+        orderReference = orderResponse.orderReference || orderResponse.reference;
+        console.log('📋 Step 4: Extracted orderReference:', orderReference);
+        
+        // Extract matchingId and iccid from response structure (per API documentation)
+        // Structure: data.order[0].esims[0].{matchingId, iccid}
+        if (orderResponse.order && Array.isArray(orderResponse.order) && orderResponse.order.length > 0) {
+          const firstOrderItem = orderResponse.order[0];
+          console.log('📦 First order item:', JSON.stringify(firstOrderItem, null, 2));
+          
+          if (firstOrderItem.esims && Array.isArray(firstOrderItem.esims) && firstOrderItem.esims.length > 0) {
+            const firstESIM = firstOrderItem.esims[0];
+            matchingId = firstESIM.matchingId;
+            iccid = firstESIM.iccid;
+            console.log('🔑 Extracted matchingId:', matchingId);
+            console.log('📱 Extracted ICCID:', iccid);
+          }
         }
-      } else if (typeof orderResponse === 'object') {
-        orderReference = orderResponse.orderReference || 
-                        orderResponse.reference || 
-                        orderResponse.data?.orderReference ||
-                        orderResponse.data?.reference;
       }
 
       if (!orderReference) {
-        console.error('Order response:', orderResponse);
+        console.error('❌ Order response:', orderResponse);
         throw new Error('Order created but no order reference received. Response: ' + JSON.stringify(orderResponse));
       }
 
-      console.log('Order reference:', orderReference);
+      // Store order details in state for QR code modal
+      setOrderReference(orderReference);
+      setMatchingId(matchingId);
+      setIccid(iccid);
 
-      // Step 4: Get Order Details using eSIM Go API v2.4
-      // GET https://api.esim-go.com/v2.4/orders/{orderReference}
-      console.log('Fetching order details from eSIM Go API...');
-      let orderDetailsResult = null;
-      try {
-        orderDetailsResult = await getOrderDetails(orderReference);
-        console.log('Order details:', orderDetailsResult);
-      } catch (orderError) {
-        console.warn('Could not fetch order details from eSIM Go API:', orderError.message);
-        // Continue anyway - we can still get install details
+      console.log('✅ Order Reference:', orderReference);
+      console.log('✅ Matching ID:', matchingId);
+      console.log('✅ ICCID:', iccid);
+
+      // Step 5: Get QR Code using TTelgo API v1
+      // API Documentation: MOBILE_API_DOCUMENTATION.md - Section 4
+      // Endpoint: GET /api/v1/esims/{orderReference}/qr
+      // IMPORTANT: Uses orderReference from Step 4 (NOT matchingId)
+      // Dynamically replace {orderReference} with the actual value from Create Order response
+      if (!orderReference) {
+        throw new Error('Order created but no order reference received. Cannot get QR code.');
       }
 
-      // Step 5: Get eSIM Install Details using eSIM Go API v2.4
-      // GET https://api.esim-go.com/v2.4/esims/assignments?reference={orderReference}
-      console.log('Fetching eSIM install details for order reference:', orderReference);
+      setIsFetchingQR(true);
+      console.log('📱 Step 5: Fetching QR code for order reference:', orderReference);
+      console.log('🌐 Calling QR API: GET /api/v1/esims/{orderReference}/qr');
+      console.log('🌐 Full URL: https://ttelgo.com/api/v1/esims/' + orderReference + '/qr');
       
       // Wait a moment for eSIM to be ready (sometimes takes a few seconds)
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      let installDetails = null;
-      let installURL = null;
+      let qrCodeData = null;
       let retryCount = 0;
       const maxRetries = 3;
       
-      // Retry getting install details (might not be ready immediately)
-      while (retryCount < maxRetries && !installDetails) {
+      // Retry getting QR code (might not be ready immediately)
+      while (retryCount < maxRetries && !qrCodeData) {
         try {
-          installDetails = await getESIMInstallDetails(orderReference, { format: 'json' });
-          console.log('eSIM install details retrieved successfully');
-          
-          // Try to get install URL
-          try {
-            installURL = await getESIMInstallURL(orderReference);
-            console.log('Install URL retrieved:', installURL);
-          } catch (urlError) {
-            console.warn('Could not get install URL, but have install details');
-          }
-          
+          qrCodeData = await getQRCode(orderReference);
+          console.log('✅ QR code retrieved successfully');
+          console.log('📦 QR Code data:', qrCodeData);
           break; // Success, exit retry loop
-        } catch (installError) {
+        } catch (qrError) {
           retryCount++;
-          console.warn(`Install details fetch attempt ${retryCount} failed:`, installError.message);
+          console.warn(`⚠️ QR code fetch attempt ${retryCount} failed:`, qrError.message);
           
           if (retryCount < maxRetries) {
             // Wait before retrying (exponential backoff)
-            await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
+            const waitTime = 2000 * retryCount;
+            console.log(`⏳ Waiting ${waitTime}ms before retry ${retryCount + 1}...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+          } else {
+            throw new Error(`Failed to get QR code after ${maxRetries} attempts: ${qrError.message}`);
           }
         }
       }
 
-      // Step 6: Handle Installation
-      if (installDetails || installURL) {
-        // Show success with installation options
+      setIsFetchingQR(false);
+
+      // Set QR code data to state for display in modal
+      setQrCodeData(qrCodeData);
+
+      // Step 6: Display QR Code
+      if (qrCodeData && qrCodeData.qrCode) {
+        // QR code successfully retrieved - show success with options
+        console.log('✅ QR Code generation complete!');
         Alert.alert(
-          'Purchase Successful!',
-          `Your eSIM order has been created and the bundle has been purchased!\n\nOrder Reference: ${orderReference}\n\nWould you like to install the eSIM now?`,
+          'Purchase Successful! 🎉',
+          `Your eSIM order has been created successfully!\n\nOrder Reference: ${orderReference}\n\nQR Code is ready for installation.`,
           [
             {
-              text: 'Install Now',
-              onPress: async () => {
-                if (installURL) {
-                  try {
-                    // Try to open install URL directly
-                    const canOpen = await Linking.canOpenURL(installURL);
-                    if (canOpen) {
-                      await Linking.openURL(installURL);
-                      Alert.alert(
-                        'Installation Started',
-                        'Follow the on-screen instructions to complete the eSIM installation.',
-                        [{ text: 'OK' }]
-                      );
-                    } else {
-                      // Navigate to installation screen
-                      navigation.navigate('ESIMInstallScreen', {
-                        reference: orderReference,
-                        orderReference: orderReference,
-                        installDetails: installDetails,
-                        installURL: installURL
-                      });
-                    }
-                  } catch (linkError) {
-                    console.error('Error opening install URL:', linkError);
-                    navigation.navigate('ESIMInstallScreen', {
-                      reference: orderReference,
-                      orderReference: orderReference,
-                      installDetails: installDetails,
-                      installURL: installURL
-                    });
-                  }
-                } else {
-                  // Navigate to installation screen
-                  navigation.navigate('ESIMInstallScreen', {
-                    reference: orderReference,
-                    orderReference: orderReference,
-                    installDetails: installDetails
-                  });
-                }
+              text: 'View QR Code',
+              onPress: () => {
+                // Open QR code modal
+                setQrCodeModalVisible(true);
               },
             },
             {
-              text: 'View Details',
-              onPress: () => {
-                // Navigate to installation screen
+              text: 'Install Now',
+              onPress: async () => {
+                // Navigate to installation screen with QR code data
                 navigation.navigate('ESIMInstallScreen', {
                   reference: orderReference,
                   orderReference: orderReference,
-                  installDetails: installDetails,
-                  installURL: installURL
+                  matchingId: matchingId,
+                  iccid: iccid,
+                  qrCode: qrCodeData.qrCode,
+                  qrCodeData: qrCodeData
                 });
               },
             },
@@ -311,31 +353,22 @@ export default function YourOrder({ navigation, route }) {
               text: 'Later',
               style: 'cancel',
               onPress: () => {
-                navigation.goBack();
+                navigation.navigate('ManageMain');
               },
             },
           ]
         );
       } else {
-        // Install details not available yet
+        // QR code not available yet
+        console.warn('⚠️ QR code not available in response');
         Alert.alert(
           'Order Created Successfully!',
-          `Your eSIM order has been created and the bundle has been purchased!\n\nOrder Reference: ${orderReference}\n\nThe eSIM installation details will be available shortly. You can check back in a few moments.`,
+          `Your eSIM order has been created!\n\nOrder Reference: ${orderReference}\n\nThe QR code will be available shortly. You can check back in a few moments.`,
           [
-            {
-              text: 'Check Installation',
-              onPress: () => {
-                // Navigate to installation screen which will retry fetching install details
-                navigation.navigate('ESIMInstallScreen', {
-                  reference: orderReference,
-                  orderReference: orderReference
-                });
-              },
-            },
             {
               text: 'OK',
               onPress: () => {
-                navigation.goBack();
+                navigation.navigate('ManageMain');
               },
             },
           ]
@@ -343,14 +376,62 @@ export default function YourOrder({ navigation, route }) {
       }
 
     } catch (error) {
-      console.error('Error completing purchase:', error);
-      Alert.alert(
-        'Error',
-        error.message || 'Failed to complete purchase. Please try again.',
-        [{ text: 'OK' }]
-      );
+      console.error('❌ Error completing purchase:', error);
+      
+      // Reset loading states on error
+      setIsCreatingOrder(false);
+      setIsFetchingQR(false);
+      
+      // Check if this is a credit-related error
+      const isCreditError = error.isCreditError || 
+                           error.message === 'INSUFFICIENT_CREDIT' ||
+                           (error.message && (
+                             error.message.toLowerCase().includes('credit') ||
+                             error.message.toLowerCase().includes('insufficient') ||
+                             error.message.toLowerCase().includes('not enough') ||
+                             error.message.toLowerCase().includes('balance') ||
+                             error.message.toLowerCase().includes('funds')
+                           ));
+      
+      if (isCreditError) {
+        // Show specific dialog for insufficient credit
+        Alert.alert(
+          'Insufficient Credit',
+          'Your credit is not enough to complete this purchase. Please add more credit to your account and try again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Keep user on the page so they can add credit and retry
+              },
+            },
+          ]
+        );
+      } else {
+        // Show generic error message for other errors
+        Alert.alert(
+          'Purchase Failed',
+          error.message || 'Failed to complete purchase. Please check your connection and try again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Keep user on the page so they can retry
+              },
+            },
+          ]
+        );
+      }
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // Copy QR code to clipboard
+  const copyQRCodeToClipboard = () => {
+    if (qrCodeData && qrCodeData.qrCode) {
+      Clipboard.setString(qrCodeData.qrCode);
+      Alert.alert('Copied!', 'QR code data has been copied to clipboard');
     }
   };
 
@@ -410,12 +491,17 @@ export default function YourOrder({ navigation, route }) {
       
         {/* Complete Purchase Button */}
         <TouchableOpacity 
-          style={[styles.completeButton, isProcessing && styles.completeButtonDisabled]}
+          style={[styles.completeButton, (isProcessing || isCreatingOrder || isFetchingQR) && styles.completeButtonDisabled]}
           onPress={handleCompletePurchase}
-          disabled={isProcessing}
+          disabled={isProcessing || isCreatingOrder || isFetchingQR}
         >
-          {isProcessing ? (
-            <ActivityIndicator size="small" color="#fff" />
+          {isProcessing || isCreatingOrder || isFetchingQR ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={styles.loadingButtonText}>
+                {isCreatingOrder ? 'Creating Order...' : isFetchingQR ? 'Generating QR Code...' : 'Processing...'}
+              </Text>
+            </View>
           ) : (
             <Text style={styles.completeButtonText}>Complete Purchase</Text>
           )}
@@ -657,6 +743,133 @@ export default function YourOrder({ navigation, route }) {
                   </ScrollView>
                 </View>
               </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* QR Code Modal */}
+      <Modal
+        visible={qrCodeModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setQrCodeModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.qrCodeModalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>eSIM QR Code</Text>
+              <TouchableOpacity onPress={() => setQrCodeModalVisible(false)}>
+                <Icon name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+
+            {qrCodeData && (
+              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: '80%' }}>
+                <Text style={styles.qrCodeModalText}>
+                  Scan this QR code with your device to install the eSIM.
+                </Text>
+                {orderReference && (
+                  <Text style={styles.qrCodeModalSubText}>
+                    Order Reference: {orderReference}
+                  </Text>
+                )}
+
+                {qrCodeData.qrCode ? (
+                  <View style={styles.qrCodeContainer}>
+                    {/* Check if qrCode is a ZIP file (starts with "PK") */}
+                    {qrCodeData.qrCodeType === 'zip' || (typeof qrCodeData.qrCode === 'string' && qrCodeData.qrCode.startsWith('PK')) ? (
+                      <View style={styles.qrCodePlaceholder}>
+                        <Icon name="qr-code-outline" size={100} color="#CC0000" />
+                        <Text style={styles.qrCodeStringText}>
+                          QR Code ZIP file received
+                        </Text>
+                        <Text style={styles.qrCodeInfoText}>
+                          The QR code is packaged in a ZIP file. For installation, please use the matching ID below or extract the ZIP file.
+                        </Text>
+                        {qrCodeData.matchingId && (
+                          <View style={styles.infoRow}>
+                            <Text style={styles.infoLabel}>Matching ID:</Text>
+                            <Text style={styles.infoValue}>{qrCodeData.matchingId}</Text>
+                          </View>
+                        )}
+                      </View>
+                    ) : qrCodeData.qrCode.startsWith('data:image') || qrCodeData.qrCode.startsWith('http') ? (
+                      <Image
+                        source={{ uri: qrCodeData.qrCode }}
+                        style={styles.qrCodeImage}
+                        resizeMode="contain"
+                        onError={(e) => console.error('QR Code Image Error:', e.nativeEvent.error)}
+                      />
+                    ) : (
+                      // If it's a raw string (LPA string), display it
+                      <View style={styles.qrCodePlaceholder}>
+                        <Icon name="qr-code-outline" size={100} color="#CC0000" />
+                        <Text style={styles.qrCodeStringText}>{qrCodeData.qrCode}</Text>
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  <View style={styles.qrCodePlaceholder}>
+                    <Icon name="alert-circle-outline" size={60} color="#CC0000" />
+                    <Text style={styles.qrCodeStringText}>QR Code not available.</Text>
+                  </View>
+                )}
+
+                {qrCodeData.matchingId && (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Matching ID:</Text>
+                    <Text style={styles.infoValue}>{qrCodeData.matchingId}</Text>
+                  </View>
+                )}
+                {iccid && (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>ICCID:</Text>
+                    <Text style={styles.infoValue}>{iccid}</Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={styles.copyButton}
+                  onPress={copyQRCodeToClipboard}
+                >
+                  <Icon name="copy-outline" size={20} color="#fff" />
+                  <Text style={styles.copyButtonText}>Copy QR Code Data</Text>
+                </TouchableOpacity>
+
+                <Text style={styles.installationInstructionsTitle}>Installation Instructions:</Text>
+                <Text style={styles.installationInstructionsText}>
+                  1. Ensure your device is connected to Wi-Fi.{'\n'}
+                  2. Go to Settings → Cellular/Mobile Data → Add Cellular Plan.{'\n'}
+                  3. Scan the QR code above or use the Matching ID.{'\n'}
+                  4. Follow the on-screen prompts to complete the installation.{'\n'}
+                  5. If scanning doesn't work, you can manually enter the SMDP+ Address and Activation Code (Matching ID).
+                </Text>
+
+                <TouchableOpacity
+                  style={styles.modalContinueButton}
+                  onPress={() => {
+                    setQrCodeModalVisible(false);
+                    navigation.navigate('ESIMInstallScreen', {
+                      reference: orderReference,
+                      orderReference: orderReference,
+                      matchingId: qrCodeData.matchingId || matchingId,
+                      iccid: iccid,
+                      qrCode: qrCodeData.qrCode,
+                      qrCodeData: qrCodeData
+                    });
+                  }}
+                >
+                  <Text style={styles.modalContinueButtonText}>Go to Installation Screen</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalContinueButton, { backgroundColor: '#E0E0E0', marginTop: 10 }]}
+                  onPress={() => setQrCodeModalVisible(false)}
+                >
+                  <Text style={[styles.modalContinueButtonText, { color: '#333' }]}>Close</Text>
+                </TouchableOpacity>
+              </ScrollView>
             )}
           </View>
         </View>
@@ -918,6 +1131,18 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontFamily: 'Poppins',
   },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 10,
+    fontFamily: 'Poppins',
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1141,6 +1366,254 @@ const styles = StyleSheet.create({
   countryPickerItemText: {
     fontSize: 16,
     color: '#000000',
+    fontFamily: 'Poppins',
+  },
+  qrCodeModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    width: '90%',
+    maxWidth: 400,
+    maxHeight: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  qrCodeScrollView: {
+    maxHeight: 600,
+  },
+  qrCodeInfoSection: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  qrCodeSectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333333',
+    marginBottom: 8,
+    fontFamily: 'Poppins',
+  },
+  qrCodeInfoText: {
+    fontSize: 14,
+    color: '#666666',
+    fontFamily: 'Poppins',
+  },
+  qrCodeDisplaySection: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  qrCodeImage: {
+    width: 250,
+    height: 250,
+    marginVertical: 20,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+  },
+  qrCodeStringContainer: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  qrCodeIconContainer: {
+    marginVertical: 20,
+  },
+  qrCodeStringLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333333',
+    marginBottom: 12,
+    fontFamily: 'Poppins',
+  },
+  qrCodeDataContainer: {
+    width: '100%',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  qrCodeDataText: {
+    fontSize: 12,
+    color: '#333333',
+    fontFamily: 'monospace',
+    textAlign: 'center',
+  },
+  copyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#CC0000',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginBottom: 20,
+  },
+  copyButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+    fontFamily: 'Poppins',
+  },
+  qrCodeInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+    width: '100%',
+    marginTop: 8,
+  },
+  qrCodeInfoLabel: {
+    fontSize: 14,
+    color: '#666666',
+    fontFamily: 'Poppins',
+  },
+  qrCodeInfoValue: {
+    fontSize: 14,
+    color: '#333333',
+    fontWeight: '600',
+    fontFamily: 'Poppins',
+  },
+  qrCodeErrorContainer: {
+    alignItems: 'center',
+    padding: 40,
+  },
+  qrCodeErrorText: {
+    fontSize: 16,
+    color: '#666666',
+    marginTop: 16,
+    fontFamily: 'Poppins',
+    textAlign: 'center',
+  },
+  installationInstructions: {
+    padding: 20,
+    backgroundColor: '#F9F9F9',
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginTop: 20,
+  },
+  instructionsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333333',
+    marginBottom: 12,
+    fontFamily: 'Poppins',
+  },
+  instructionsText: {
+    fontSize: 14,
+    color: '#666666',
+    lineHeight: 22,
+    fontFamily: 'Poppins',
+  },
+  qrCodeActionButtons: {
+    padding: 20,
+    paddingTop: 10,
+  },
+  installButton: {
+    backgroundColor: '#CC0000',
+    paddingVertical: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  installButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: 'Poppins',
+  },
+  closeQRButton: {
+    backgroundColor: '#F5F5F5',
+    paddingVertical: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  closeQRButtonText: {
+    color: '#333333',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Poppins',
+  },
+  qrCodeModalText: {
+    fontSize: 16,
+    color: '#333333',
+    textAlign: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 20,
+    fontFamily: 'Poppins',
+  },
+  qrCodeModalSubText: {
+    fontSize: 14,
+    color: '#666666',
+    textAlign: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 20,
+    fontFamily: 'Poppins',
+  },
+  qrCodeContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    marginVertical: 20,
+  },
+  qrCodePlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 12,
+    width: '100%',
+  },
+  qrCodeStringText: {
+    fontSize: 12,
+    color: '#333333',
+    textAlign: 'center',
+    marginTop: 12,
+    fontFamily: 'monospace',
+    paddingHorizontal: 10,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+    width: '100%',
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: '#666666',
+    fontFamily: 'Poppins',
+  },
+  infoValue: {
+    fontSize: 14,
+    color: '#333333',
+    fontWeight: '600',
+    fontFamily: 'Poppins',
+    flex: 1,
+    textAlign: 'right',
+  },
+  installationInstructionsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333333',
+    marginTop: 20,
+    marginBottom: 12,
+    paddingHorizontal: 20,
+    fontFamily: 'Poppins',
+  },
+  installationInstructionsText: {
+    fontSize: 14,
+    color: '#666666',
+    lineHeight: 22,
+    paddingHorizontal: 20,
+    marginBottom: 20,
     fontFamily: 'Poppins',
   },
 });

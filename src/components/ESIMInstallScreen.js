@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -37,16 +37,7 @@ export default function ESIMInstallScreen({ navigation, route }) {
   const [error, setError] = useState(null);
   const [qrCodeBlob, setQrCodeBlob] = useState(null);
 
-  useEffect(() => {
-    if (reference) {
-      loadESIMDetails();
-    } else {
-      setError('No reference provided');
-      setLoading(false);
-    }
-  }, [reference]);
-
-  const loadESIMDetails = async () => {
+  const loadESIMDetails = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -89,7 +80,16 @@ export default function ESIMInstallScreen({ navigation, route }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [reference, navigation]);
+
+  useEffect(() => {
+    if (reference) {
+      loadESIMDetails();
+    } else {
+      setError('No reference provided');
+      setLoading(false);
+    }
+  }, [reference, loadESIMDetails]);
 
   const handleInstall = async () => {
     if (!installURL) {
