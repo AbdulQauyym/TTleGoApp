@@ -240,7 +240,8 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
   section: {
-    marginBottom: 24,
+    marginBottom: 28,
+    marginTop: 4,
     backgroundColor: '#f9f9f9',
     padding: 16,
     borderRadius: 8,
@@ -252,6 +253,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#E53935',
     marginBottom: 8,
+    marginTop: 8,
+    paddingVertical: 8,
   },
   companyInfo: {
     fontSize: 14,
