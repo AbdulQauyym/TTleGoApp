@@ -36,7 +36,9 @@ export default function HelpCenterScreen({navigation}) {
             key={item.id} 
             style={styles.card}
             onPress={() => {
-              if (item.title === 'Contact Us') {
+              if (item.title === 'Installation and Activation') {
+                navigation.navigate('InstallationAndActivationScreen');
+              } else if (item.title === 'Contact Us') {
                 navigation.navigate('ContactUsScreen');
               } else if (item.title === 'Other Issues') {
                 navigation.navigate('OtherIssueScreen');
@@ -45,7 +47,6 @@ export default function HelpCenterScreen({navigation}) {
               } else if (item.title === 'FAQ') {
                 navigation.navigate('FAQScreen');
               }
-              // Add navigation for other items as needed
             }}
           >
             <Ionicons name={item.icon} size={24} color="#666" style={styles.icon} />

@@ -101,6 +101,11 @@ export default {
     currentLanguage: 'زبان فعلی',
     infoText: 'انتخاب زبان تمام متن‌های برنامه را به زبان انتخابی تغییر می‌دهد.',
   },
+  // Notifications Screen
+  notifications: {
+    title: 'اعلان‌ها',
+    noNotifications: 'هنوز اعلانی وجود ندارد',
+  },
   // Common
   common: {
     loading: 'در حال بارگذاری...',

@@ -12,41 +12,8 @@ export default function NotificationScreen({ navigation }) {
   const { language } = useLanguage();
   const t = (key) => translate(language, key);
 
-  // Sample notifications data - replace with actual data from API/state
-  const [notifications] = useState([
-    {
-      id: 1,
-      title: 'New eSIM Package Available',
-      message: 'Check out our new data plans for Thailand with 50% off!',
-      time: '2 hours ago',
-      type: 'promotion',
-      read: false,
-    },
-    {
-      id: 2,
-      title: 'Order Confirmed',
-      message: 'Your eSIM order for Japan has been confirmed and is ready to use.',
-      time: '1 day ago',
-      type: 'order',
-      read: false,
-    },
-    {
-      id: 3,
-      title: 'Data Usage Alert',
-      message: 'You have used 80% of your data plan. Consider upgrading.',
-      time: '2 days ago',
-      type: 'alert',
-      read: true,
-    },
-    {
-      id: 4,
-      title: 'Welcome Bonus',
-      message: 'Get 1GB free data on your first purchase!',
-      time: '3 days ago',
-      type: 'promotion',
-      read: true,
-    },
-  ]);
+  // Notifications will be populated from backend API later
+  const [notifications] = useState([]);
 
   const getNotificationIcon = (type) => {
     switch (type) {
@@ -217,10 +184,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginTop: -120,
     zIndex: 10,
+    backgroundColor: '#fff',
   },
   notificationsContent: {
     paddingTop: 20,
     paddingBottom: 20,
+    minHeight: '100%',
   },
   notificationItem: {
     flexDirection: 'row',
@@ -288,16 +257,18 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins',
   },
   emptyContainer: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 60,
+    paddingTop: 100,
+    paddingBottom: 60,
+    minHeight: 400,
   },
   emptyText: {
     fontSize: 16,
     color: '#999',
-    marginTop: 16,
+    marginTop: 20,
     fontFamily: 'Poppins',
+    textAlign: 'center',
   },
 });
 

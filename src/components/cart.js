@@ -25,9 +25,13 @@ export default function CartScreen({navigation}) {
           onPress={() => {
             const parent = navigation.getParent();
             if (parent) {
-              parent.navigate('Home', { screen: 'HomeMain' });
+              // Navigate to Home tab and set activeTab to 'Local'
+              parent.navigate('Home', { 
+                screen: 'HomeMain',
+                params: { activeTab: 'Local' }
+              });
             } else {
-              navigation.navigate('HomeMain');
+              navigation.navigate('HomeMain', { activeTab: 'Local' });
             }
           }}
         >

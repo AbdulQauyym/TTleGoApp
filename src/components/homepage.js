@@ -2,10 +2,19 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { View, Text, Image, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Linking, ActivityIndicator, TextInput, Platform, PermissionsAndroid, Alert } from 'react-native';
 import HeaderScreen from './Header';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { scaleSize, scaleFont, widthPercentage, heightPercentage } from '../utils/dimensions';
 import { fetchCountries, fetchRegionalPackages } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import { translate } from '../utils/translations';
+
+// Import region icons
+const AfricaIcon = require('../assets/Africa.png');
+const AsiaIcon = require('../assets/Asia.png');
+const EuropeIcon = require('../assets/Europe.png');
+const MiddleEastIcon = require('../assets/middle-east.png');
+const NorthAmericaIcon = require('../assets/north-america.png');
+const SouthAmericaIcon = require('../assets/south-america.png');
 
 // Safely import Voice module
 let Voice = null;
@@ -31,11 +40,20 @@ const slider4Image = require('../assets/slider4.jpeg');
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-function HomeScreen({navigation}) {
+function HomeScreen({navigation, route}) {
   const { language } = useLanguage();
   const t = (key) => translate(language, key);
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
-  const [activeTab, setActiveTab] = useState('Local'); // 'Local', 'Regional', 'Global'
+  // Get initial tab from route params, default to 'Local'
+  const initialTab = route?.params?.activeTab || 'Local';
+  const [activeTab, setActiveTab] = useState(initialTab); // 'Local', 'Regional', 'Global'
+  
+  // Update activeTab when route params change
+  useEffect(() => {
+    if (route?.params?.activeTab) {
+      setActiveTab(route.params.activeTab);
+    }
+  }, [route?.params?.activeTab]);
   const adScrollViewRef = useRef(null);
   const [countries, setCountries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -208,14 +226,25 @@ function HomeScreen({navigation}) {
     console.error('HomeScreen: navigation prop is missing');
   }
 
-  // Regions list for Regional tab
+  // Region Icon Component with Red Tint
+  const RegionIcon = ({ source, size = 24 }) => (
+    <View style={[styles.regionIconImageContainer, { width: size, height: size }]}>
+      <Image 
+        source={source} 
+        style={[styles.regionIconImage, { width: size, height: size, tintColor: '#CC0000' }]}
+        resizeMode="contain"
+      />
+    </View>
+  );
+
+  // Regions list for Regional tab with PNG icons
   const regionsList = [
-    { name: 'Africa', iconColor: '#FFC107' }, // Yellow
-    { name: 'Asia', iconColor: '#1976D2' }, // Dark blue
-    { name: 'Europe', iconColor: '#03A9F4' }, // Light blue
-    { name: 'North America', iconColor: '#4CAF50' }, // Green
-    { name: 'South America', iconColor: '#F44336' }, // Red
-    { name: 'Middle East', iconColor: '#8BC34A' }, // Light green
+    { name: 'Africa', iconColor: 'transparent', iconImage: AfricaIcon, useImageIcon: true },
+    { name: 'Asia', iconColor: 'transparent', iconImage: AsiaIcon, useImageIcon: true },
+    { name: 'Europe', iconColor: 'transparent', iconImage: EuropeIcon, useImageIcon: true },
+    { name: 'North America', iconColor: 'transparent', iconImage: NorthAmericaIcon, useImageIcon: true },
+    { name: 'South America', iconColor: 'transparent', iconImage: SouthAmericaIcon, useImageIcon: true },
+    { name: 'Middle East', iconColor: 'transparent', iconImage: MiddleEastIcon, useImageIcon: true },
   ];
 
   // Filter countries based on search query (computed before return to avoid hook issues)
@@ -871,8 +900,18 @@ function HomeScreen({navigation}) {
                     }
                   }}
                 >
-                  <View style={[styles.regionIconContainer, { backgroundColor: region.iconColor }]}>
-                    <Ionicons name="map-outline" size={24} color="#fff" />
+                  <View style={[styles.regionIconContainer, { backgroundColor: region.iconColor || 'transparent' }]}>
+                    {region.useImageIcon ? (
+                      <RegionIcon source={region.iconImage} size={24} />
+                    ) : region.useCustomIcon ? (
+                      <RedGlobeIcon size={24} />
+                    ) : (
+                      <Ionicons 
+                        name={region.icon || 'map-outline'} 
+                        size={24} 
+                        color="#fff" 
+                      />
+                    )}
                   </View>
                   <Text style={styles.regionName}>{region.name}</Text>
                   <Ionicons name="chevron-forward" size={20} color="#999" />
@@ -1345,6 +1384,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+  },
+  regionIconImageContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  regionIconImage: {
+    tintColor: '#CC0000',
   },
   regionName: {
     flex: 1,

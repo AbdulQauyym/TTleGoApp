@@ -10,7 +10,9 @@ import LiveChatScreen from './LiveChat';
 import OtherIssueScreen from './OtherIssue';
 import NetworkSpeedScreen from './NetworkSpeed';
 import TermsAndConditionsScreen from './TermsAndConditions';
+import PrivacyPolicyScreen from './PrivacyPolicy';
 import FAQScreen from './FAQScreen';
+import InstallationAndActivationScreen from './InstallationAndActivation';
 
 const Stack = createNativeStackNavigator();
 
@@ -33,6 +35,8 @@ export default function ProfileStack() {
       <Stack.Screen name="AboutScreen" component={AboutScreen} options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="FAQScreen" component={FAQScreen} options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="TermsAndConditionsScreen" component={TermsAndConditionsScreen} options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="PrivacyPolicyScreen" component={PrivacyPolicyScreen} options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="InstallationAndActivationScreen" component={InstallationAndActivationScreen} options={{ animation: 'slide_from_right' }} />
     </Stack.Navigator>
   );
 }

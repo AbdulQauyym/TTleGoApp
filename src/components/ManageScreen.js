@@ -81,79 +81,13 @@ export default function ManageScreen({navigation}) {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Data Plan Card */}
+          {/* Current Tab Content */}
+          {/* TODO: Add real data from backend/API when integration is complete */}
           {activeTab === 'Current' && (
             <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Image
-                  source={{ uri: 'https://flagcdn.com/w40/de.png' }}
-                  style={styles.flag}
-                />
-                <Text style={styles.country}>Germany</Text>
-                <Text style={styles.planType}>Trial</Text>
-              </View>
-
-              <View style={styles.cardBody}>
-                <View style={styles.row}>
-                  <Text style={styles.label}>Coverage</Text>
-                  <Text style={styles.value}>Germany</Text>
-                </View>
-                <View style={styles.row}>
-                  <Text style={[styles.label, { color: '#d00' }]}>1 GB - 3 Days</Text>
-                </View>
-                <View style={styles.row}>
-                  <Text style={styles.label}>Remaining data</Text>
-                  <Text style={styles.value}>0.92 GB</Text>
-                </View>
-                <View style={styles.row}>
-                  <Text style={styles.label}>Expires in</Text>
-                  <Text style={styles.value}>2 days / 5 hours</Text>
-                </View>
-              </View>
-
-              {/* Action Buttons */}
-              <View style={styles.buttonRow}>
-                <TouchableOpacity 
-                  style={styles.buttonOutline}
-                  onPress={() => {
-                    try {
-                      if (navigation && navigation.navigate) {
-                        navigation.navigate('DataPlanScreen', {
-                          countryName: 'Germany',
-                          countryFlag: 'de'
-                        });
-                      }
-                    } catch (error) {
-                      console.error('Navigation error:', error);
-                    }
-                  }}
-                >
-                  <Text style={styles.buttonOutlineText}>Buy Add-On</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.buttonFilled}
-                  onPress={() => {
-                    try {
-                      if (navigation && navigation.navigate) {
-                        // Pass plan data based on the current plan shown
-                        navigation.navigate('DataPlan', {
-                          countryName: 'Germany',
-                          countryFlag: 'de',
-                          planData: {
-                            data: '1 GB',
-                            duration: '3 Days',
-                            newPrice: '0',
-                            oldPrice: null
-                          }
-                        });
-                      }
-                    } catch (error) {
-                      console.error('Navigation error:', error);
-                    }
-                  }}
-                >
-                  <Text style={styles.buttonFilledText}>View Detail</Text>
-                </TouchableOpacity>
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>No Current Plans</Text>
+                <Text style={styles.emptyStateSubtext}>Your active eSIM plans will appear here</Text>
               </View>
             </View>
           )}

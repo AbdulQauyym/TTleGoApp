@@ -57,7 +57,17 @@ export default function AboutScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={styles.content}>
         {aboutItems.map((item) => (
-          <TouchableOpacity key={item.id} style={styles.card}>
+          <TouchableOpacity 
+            key={item.id} 
+            style={styles.card}
+            onPress={() => {
+              if (item.title === 'Terms & Condition') {
+                navigation.navigate('TermsAndConditionsScreen');
+              } else if (item.title === 'Privacy Policy') {
+                navigation.navigate('PrivacyPolicyScreen');
+              }
+            }}
+          >
             <MaterialCommunityIcons name={item.icon} size={24} color="#555" style={styles.icon} />
             <Text style={styles.cardText}>{item.title}</Text>
           </TouchableOpacity>

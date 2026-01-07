@@ -101,6 +101,11 @@ export default {
     currentLanguage: 'Current Language',
     infoText: 'Selecting a language will change all app text to the selected language.',
   },
+  // Notifications Screen
+  notifications: {
+    title: 'Notifications',
+    noNotifications: 'No notifications yet',
+  },
   // Common
   common: {
     loading: 'Loading...',

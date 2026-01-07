@@ -2,7 +2,16 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Image, Dimensions, SafeAreaView, ActivityIndicator } from 'react-native';
 import HeaderScreen from './Header';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { getSafeWindowDimensions, scaleSize } from '../utils/dimensions';
+
+// Import region icons
+const AfricaIcon = require('../assets/Africa.png');
+const AsiaIcon = require('../assets/Asia.png');
+const EuropeIcon = require('../assets/Europe.png');
+const MiddleEastIcon = require('../assets/middle-east.png');
+const NorthAmericaIcon = require('../assets/north-america.png');
+const SouthAmericaIcon = require('../assets/south-america.png');
 
 // Base design dimensions (iPhone standard)
 const BASE_WIDTH = 375;
@@ -55,26 +64,40 @@ export default function RegionalESimsScreen({ navigation, route }) {
   // Get region from route params
   const selectedRegion = route?.params?.region;
 
-  // Region color mapping
-  const regionColors = {
-    'Africa': '#FFC107',
-    'Asia': '#1976D2',
-    'Europe': '#03A9F4',
-    'North America': '#4CAF50',
-    'South America': '#F44336',
-    'Middle East': '#8BC34A',
-    'Oceania': '#9C27B0',
+  // Helper function to normalize region name (case-insensitive)
+  const normalizeRegionName = (region) => {
+    if (!region) return 'Other';
+    return region.trim();
   };
 
-  // Region icon mapping - using map icon with colors
-  const regionIcons = {
-    'Africa': 'map',
-    'Asia': 'map',
-    'Europe': 'map',
-    'North America': 'map',
-    'South America': 'map',
-    'Middle East': 'map',
-    'Oceania': 'map',
+  // Region color mapping (case-insensitive matching)
+  const getRegionColor = (region) => {
+    const normalized = normalizeRegionName(region).toLowerCase();
+    const colorMap = {
+      'africa': '#CC0000', // Red color for Africa
+      'asia': '#1976D2',
+      'europe': '#03A9F4',
+      'north america': '#4CAF50',
+      'south america': '#F44336',
+      'middle east': '#8BC34A',
+      'oceania': '#9C27B0',
+    };
+    return colorMap[normalized] || '#CC0000';
+  };
+
+  // Region icon mapping (case-insensitive matching)
+  const getRegionIcon = (region) => {
+    const normalized = normalizeRegionName(region).toLowerCase();
+    const iconMap = {
+      'africa': 'globe', // Globe icon for Africa in red
+      'asia': 'map-outline',
+      'europe': 'map-outline',
+      'north america': 'map-outline',
+      'south america': 'map-outline',
+      'middle east': 'map-outline',
+      'oceania': 'map-outline',
+    };
+    return iconMap[normalized] || 'map-outline';
   };
 
   // Load regional packages from API
@@ -110,11 +133,15 @@ export default function RegionalESimsScreen({ navigation, route }) {
               const region = country.region || 'Other';
               
               if (!regionMap[region]) {
+                const icon = getRegionIcon(region);
+                const iconColor = getRegionColor(region);
+                console.log(`Region: ${region}, Icon: ${icon}, Color: ${iconColor}`);
+                
                 regionMap[region] = {
                   id: region,
                   planName: region,
-                  icon: regionIcons[region] || 'map',
-                  iconColor: regionColors[region] || '#CC0000',
+                  icon: icon,
+                  iconColor: iconColor,
                   price: null,
                   data: null,
                   validity: null,
@@ -177,6 +204,28 @@ export default function RegionalESimsScreen({ navigation, route }) {
           pkg.countries.sort((a, b) => a.name.localeCompare(b.name));
         });
         
+        // Add dummy Africa region for testing (exclude from API)
+        const dummyAfrica = {
+          id: 'africa-dummy',
+          planName: 'Africa',
+          icon: 'globe',
+          iconColor: '#CC0000',
+          price: '9.99',
+          data: '5 GB',
+          validity: '30 Days',
+          countries: [
+            { name: 'South Africa', flag: 'za' },
+            { name: 'Kenya', flag: 'ke' },
+            { name: 'Nigeria', flag: 'ng' },
+            { name: 'Morocco', flag: 'ma' },
+            { name: 'Ghana', flag: 'gh' },
+          ],
+          bundles: [],
+        };
+        
+        // Add dummy Africa at the beginning
+        packages = [dummyAfrica, ...packages];
+        
         setRegionalPackages(packages);
         console.log(`✅ Loaded ${packages.length} regional packages from API`);
       } else {
@@ -197,6 +246,31 @@ export default function RegionalESimsScreen({ navigation, route }) {
     loadRegionalPackages();
   }, [loadRegionalPackages]);
 
+  // Get region icon image
+  const getRegionIconImage = (regionName) => {
+    const normalized = regionName?.toLowerCase() || '';
+    const iconMap = {
+      'africa': AfricaIcon,
+      'asia': AsiaIcon,
+      'europe': EuropeIcon,
+      'north america': NorthAmericaIcon,
+      'south america': SouthAmericaIcon,
+      'middle east': MiddleEastIcon,
+    };
+    return iconMap[normalized] || null;
+  };
+
+  // Region Icon Component with Red Tint
+  const RegionIconImage = ({ source, size = 24 }) => (
+    <View style={styles.iconWrapper}>
+      <Image 
+        source={source} 
+        style={[styles.regionIconImageStyle, { width: size, height: size, tintColor: '#CC0000' }]}
+        resizeMode="contain"
+      />
+    </View>
+  );
+
   const renderPackageCard = (pkg) => {
     const displayedCountries = pkg.countries.slice(0, 5);
     const remainingCount = pkg.countries.length - displayedCountries.length;
@@ -205,12 +279,20 @@ export default function RegionalESimsScreen({ navigation, route }) {
       <View key={pkg.id} style={styles.packageCard}>
         <View style={styles.packageHeader}>
           <View style={styles.packageTitleContainer}>
-            <Ionicons 
-              name={pkg.icon === 'map' ? 'map-outline' : pkg.icon} 
-              size={24} 
-              color={pkg.iconColor || '#CC0000'} 
-              style={styles.packageIcon}
-            />
+            {(() => {
+              const iconImage = getRegionIconImage(pkg.planName);
+              if (iconImage) {
+                return <RegionIconImage source={iconImage} size={24} />;
+              }
+              return (
+                <Ionicons 
+                  name={pkg.icon || 'map-outline'} 
+                  size={24} 
+                  color={pkg.iconColor || '#CC0000'} 
+                  style={styles.packageIcon}
+                />
+              );
+            })()}
             <Text style={styles.packageName}>{pkg.planName}</Text>
           </View>
           <View style={styles.priceContainer}>
@@ -389,6 +471,14 @@ const styles = StyleSheet.create({
   },
   packageIcon: {
     marginRight: 12,
+  },
+  iconWrapper: {
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  regionIconImageStyle: {
+    tintColor: '#CC0000',
   },
   packageName: {
     fontSize: 18,

@@ -101,6 +101,11 @@ export default {
     currentLanguage: 'اوسنۍ ژبه',
     infoText: 'د ژبې انتخاب د اپلیکیشن ټول متنونه د انتخاب شوې ژبې ته بدلوي.',
   },
+  // Notifications Screen
+  notifications: {
+    title: 'خبرتیاوې',
+    noNotifications: 'تر اوسه خبرتیا نشته',
+  },
   // Common
   common: {
     loading: 'پورته کېږي...',
